@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js"></script>
 <style>
 :root{
   --bg:#f8f9fb;--surface:#fff;--text:#1a1a2e;--muted:#6b7280;
@@ -1725,8 +1725,14 @@ function renderUsers(root){
 // INIT
 // ============================================================
 (async function init(){
-  const { data } = await sb.auth.getSession();
-  currentUser = data.session ? data.session.user : null;
+  // دفاعي: لو تعطّل قفل المتصفح (navigator.locks) القديم من جلسة سابقة، لا نترك الشاشة فارغة إلى الأبد
+  const sessionPromise = sb.auth.getSession();
+  const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({ data: { session: null }, timedOut: true }), 8000));
+  const result = await Promise.race([sessionPromise, timeoutPromise]);
+  if (result.timedOut) {
+    console.warn('getSession() timed out after 8s (possible stuck navigator.locks); showing login screen');
+  }
+  currentUser = result.data.session ? result.data.session.user : null;
   await boot();
 })();
 </script>
