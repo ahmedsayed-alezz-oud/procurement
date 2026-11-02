@@ -1,0 +1,1734 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نظام المشتريات — العز للعود</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --bg:#f8f9fb;--surface:#fff;--text:#1a1a2e;--muted:#6b7280;
+  --primary:#2563eb;--primary-light:#dbeafe;--danger:#ef4444;--danger-light:#fee2e2;
+  --success:#16a34a;--success-light:#dcfce7;--warn:#f59e0b;--warn-light:#fef3c7;
+  --border:#e5e7eb;--radius:10px;--shadow:0 1px 3px rgba(0,0,0,.08);
+  --chart-1:#2563eb;--chart-2:#7c3aed;--chart-3:#059669;--chart-4:#dc2626;
+  --chart-5:#d97706;--chart-6:#0891b2;--chart-7:#db2777;--chart-8:#4f46e5;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#0f172a;--surface:#1e293b;--text:#e2e8f0;--muted:#94a3b8;
+    --primary:#3b82f6;--primary-light:#1e3a5f;--danger:#f87171;--danger-light:#3f1d1d;
+    --success:#4ade80;--success-light:#14532d;--warn:#fbbf24;--warn-light:#422006;
+    --border:#334155;--shadow:0 1px 3px rgba(0,0,0,.3);
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Noto Sans Arabic',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;box-shadow:var(--shadow)}
+.topbar .brand{display:flex;align-items:center;gap:10px}
+.topbar .brand .logo-wrap{background:#fff;padding:4px 10px;border-radius:6px;display:flex;align-items:center}
+.topbar .brand img{height:26px;width:auto;object-fit:contain;display:block}
+.topbar h1{font-size:16px;font-weight:700;color:var(--primary)}
+.topbar .whoami{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.container{max-width:1400px;margin:0 auto;padding:16px}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;background:var(--surface);padding:6px;border-radius:var(--radius);box-shadow:var(--shadow)}
+.tabs button{border:none;background:transparent;padding:8px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--muted);transition:.2s}
+.tabs button.active{background:var(--primary);color:#fff;font-weight:600}
+.tabs button:hover:not(.active){background:var(--primary-light);color:var(--primary)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);font-weight:600;text-align:right;padding:8px 10px;border-bottom:2px solid var(--border);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:hover td{background:var(--primary-light)}
+.btn{border:1px solid var(--border);background:var(--surface);color:var(--text);padding:8px 16px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;transition:.15s}
+.btn:hover{border-color:var(--primary);color:var(--primary)}
+.btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+.btn.primary:hover{opacity:.85}
+.btn.danger{background:var(--danger);color:#fff;border-color:var(--danger)}
+.btn.small{padding:4px 10px;font-size:12px}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.row>.field{flex:1;min-width:160px}
+.field{margin-bottom:10px}
+.field label{display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--muted)}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:inherit;font-size:13px;background:var(--surface);color:var(--text)}
+.field textarea{min-height:60px;resize:vertical}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge.ok{background:var(--success-light);color:var(--success)}
+.badge.warn{background:var(--warn-light);color:var(--warn)}
+.badge.bad{background:var(--danger-light);color:var(--danger)}
+.badge.info{background:var(--primary-light);color:var(--primary)}
+.muted{font-size:12px;color:var(--muted)}
+
+/* KPI Dashboard */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.kpi-card .kpi-icon{font-size:28px;margin-bottom:6px}
+.kpi-card .kpi-value{font-size:28px;font-weight:700;line-height:1.2}
+.kpi-card .kpi-label{font-size:12px;color:var(--muted);margin-top:4px}
+.kpi-card .kpi-bar{position:absolute;bottom:0;left:0;right:0;height:4px;background:var(--border)}
+.kpi-card .kpi-bar-fill{height:100%;border-radius:0 2px 2px 0;transition:width .5s}
+.kpi-card.green .kpi-value{color:var(--success)}
+.kpi-card.green .kpi-bar-fill{background:var(--success)}
+.kpi-card.red .kpi-value{color:var(--danger)}
+.kpi-card.red .kpi-bar-fill{background:var(--danger)}
+.kpi-card.blue .kpi-value{color:var(--primary)}
+.kpi-card.blue .kpi-bar-fill{background:var(--primary)}
+.kpi-card.amber .kpi-value{color:var(--warn)}
+.kpi-card.amber .kpi-bar-fill{background:var(--warn)}
+
+.charts-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px;margin-top:14px}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+.chart-card h4{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text)}
+.chart-card canvas{max-height:280px}
+
+/* Comparison */
+.compare-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.supplier-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+.supplier-card h4{font-size:15px;font-weight:700;margin-bottom:10px;color:var(--primary)}
+.supplier-card .stat-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.supplier-card .stat-row:last-child{border-bottom:none}
+.supplier-card .stat-label{color:var(--muted)}
+.supplier-card .stat-value{font-weight:600}
+
+/* Nama toggle */
+.nama-toggle{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg);cursor:pointer}
+.nama-toggle.uploaded{border-color:var(--success);background:var(--success-light)}
+.nama-toggle input{width:auto}
+
+/* Auth */
+.auth-box{max-width:360px;margin:80px auto;background:var(--surface);border-radius:var(--radius);padding:32px;box-shadow:var(--shadow);text-align:center}
+.auth-box h2{margin-bottom:16px;font-size:18px;color:var(--primary)}
+.auth-box p{color:var(--muted);font-size:13px;margin-bottom:16px}
+.pending-box{max-width:400px;margin:80px auto;text-align:center}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+.modal{background:var(--surface);border-radius:var(--radius);padding:24px;max-width:680px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 8px 30px rgba(0,0,0,.2)}
+.modal h3{font-size:16px;font-weight:700;margin-bottom:14px;color:var(--primary)}
+
+/* Toast */
+.toast-root{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:200}
+.toast-msg{background:var(--text);color:var(--bg);padding:10px 20px;border-radius:8px;font-size:13px;animation:fadeIn .3s}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* Attachment area */
+.attach-area{border:2px dashed var(--border);border-radius:var(--radius);padding:16px;text-align:center;margin-top:10px}
+.attach-area.dragover{border-color:var(--primary);background:var(--primary-light)}
+.attach-list{margin-top:8px;font-size:12px}
+.attach-list a{color:var(--primary);text-decoration:none}
+.attach-list a:hover{text-decoration:underline}
+
+@media(max-width:640px){
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .charts-row{grid-template-columns:1fr}
+  .compare-grid{grid-template-columns:1fr}
+  .row{flex-direction:column}
+  .row>.field{min-width:100%}
+  .topbar{padding:8px 12px}
+  .container{padding:10px}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="logo-wrap"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAACyCAYAAAC0oD1PAAAgAElEQVR4nO2debhlV1mn33PPHWq+NaRSlYkKUEAIgyDzJCIRReZAULGhmQVtQBARBKUZtG0FG2kVuoFWQAQFArSCqBCGKIOQQAhCIKmkklSSylBj6lbVveees/uPb/2yvrvv3vvsO6UC/b3Pc547nHP2Xnvttb55rQ1BEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEARBEPwI0DnRDQiC4IQxkl4Ag/T6/402MrC4A7RBrGRbToQ+WOj1nCid1aadd+S2BUHwY0yV8Bmp+N+PM20E8EoK6cX0d2eR32tz3BOhkEYWcN7uAj673DSdt4O17UTQqf1jsQcZwlKth+U81+05GNpe91LbdCKts4776QVC4X4WzG2jBn8B9BdxrjbckcbcHZEOUKxdu/Y+x44d+1mgOzEx8cVjx459Q++d2OatKH6cDoBV6SX8tc8CUyvQBh8VARijWUlrDvVZvihKp/RzAIwC65bp+FWU+/YY7a7H91cHu18Ty9u0eajPO9SPg/JYGgNWs/KGsZepR1P7bmvQQhhhvoBu853FDEJ11kK+29S+xbR9KbQ532L7xqN+0iCSklyp66w6VxvKQkzHamOELXQclA2LhbDQe7KY9p1IRoBBt9t92mAw+HBRFBMAnU6nPzo6+sJer/dXLM+4vKOhcTsKjGPK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" alt="HERSH ALEZZ"></span>
+    <h1>نظام المشتريات — العز للعود</h1>
+  </div>
+  <div class="whoami" id="whoami"></div>
+</div>
+
+<div id="auth-view" style="display:none">
+  <div class="auth-box">
+    <h2>تسجيل الدخول</h2>
+    <p>أدخل اسم المستخدم وكلمة المرور</p>
+    <div class="field"><label>اسم المستخدم</label><input id="a-user" placeholder="ahmed"></div>
+    <div class="field"><label>كلمة المرور</label><input type="password" id="a-pass"></div>
+    <button class="btn primary" id="a-submit" style="width:100%;margin-top:8px">دخول</button>
+    <p style="margin-top:10px"><a href="#" id="a-toggle" style="color:var(--primary)">إنشاء حساب جديد</a></p>
+    <p id="a-error" style="color:var(--danger);font-size:12px;margin-top:8px"></p>
+  </div>
+</div>
+
+<div id="pending-view" style="display:none">
+  <div class="pending-box">
+    <div class="card" style="padding:32px">
+      <h2 style="color:var(--warn)">⏳ حسابك قيد المراجعة</h2>
+      <p style="margin-top:10px;color:var(--muted)">سيقوم المدير بتفعيل حسابك قريبًا. يمكنك تحديث هذه الصفحة لاحقًا.</p>
+      <button class="btn" id="btn-signout-pending" style="margin-top:14px">خروج</button>
+    </div>
+  </div>
+</div>
+
+<div id="app-view" style="display:none">
+  <div class="container">
+    <div class="tabs" id="tabs"></div>
+    <div id="tab-content"></div>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+<div class="toast-root" id="toast-root"></div>
+
+<script>
+// ============================================================
+// CONFIG & INIT
+// ============================================================
+const SUPABASE_URL = 'https://rpbxrtteuwldqhlkgfro.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwYnhydHRldXdsZHFobGtnZnJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzA0ODI0MDAsImV4cCI6MjA0NjA1ODQwMH0.sb_publishable_buXNFHpHit-maFWMUaZqng_nftkJISR';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function emailFor(input){
+  if (input.includes('@')) return input;
+  return input.trim().toLowerCase() + '@users.alezz-oud.com';
+}
+
+// ============================================================
+// STATE
+// ============================================================
+let currentUser = null;
+let currentProfile = null;
+let activeTab = 'dashboard';
+let cache = { suppliers:[], orders:[], lines:[], payments:[], shipments:[], season:[], profiles:[], audit:[], attachments:[] };
+let chartInstances = {};
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function toast(msg){
+  const el = document.createElement('div');
+  el.className = 'toast-msg';
+  el.textContent = msg;
+  document.getElementById('toast-root').append(el);
+  setTimeout(()=>el.remove(), 3000);
+}
+function fmtDate(d){ return d ? new Date(d).toLocaleDateString('ar-SA') : '—'; }
+function fmtNum(n){ return n!=null ? Number(n).toLocaleString('ar-SA',{maximumFractionDigits:2}) : '—'; }
+function val(id){ return document.getElementById(id)?.value ?? ''; }
+
+const CHART_COLORS = ['#2563eb','#7c3aed','#059669','#dc2626','#d97706','#0891b2','#db2777','#4f46e5','#84cc16','#f43f5e'];
+
+// ============================================================
+// AUTH
+// ============================================================
+let isSignup = false;
+document.getElementById('a-toggle').onclick = (e) => {
+  e.preventDefault();
+  isSignup = !isSignup;
+  document.getElementById('a-toggle').textContent = isSignup ? 'لديك حساب؟ سجل دخولك' : 'إنشاء حساب جديد';
+  document.getElementById('a-submit').textContent = isSignup ? 'إنشاء حساب' : 'دخول';
+};
+document.getElementById('a-submit').onclick = async () => {
+  const email = emailFor(val('a-user'));
+  const pass = val('a-pass');
+  if (!pass) { document.getElementById('a-error').textContent = 'أدخل كلمة المرور'; return; }
+  document.getElementById('a-error').textContent = '';
+  try {
+    let res;
+    if (isSignup) {
+      res = await sb.auth.signUp({ email, password: pass, options:{ data:{ username: val('a-user').trim().toLowerCase() } } });
+    } else {
+      res = await sb.auth.signInWithPassword({ email, password: pass });
+    }
+    if (res.error) throw res.error;
+  } catch(e) { document.getElementById('a-error').textContent = e.message; }
+};
+
+function signOut(){ sb.auth.signOut(); }
+
+sb.auth.onAuthStateChange(async (event, session) => {
+  currentUser = session?.user || null;
+  await boot();
+});
+
+async function boot(){
+  if (!currentUser) {
+    showView('auth');
+    document.getElementById('whoami').innerHTML = '';
+    return;
+  }
+  const { data: profile } = await sb.from('erp_profiles').select('*').eq('id', currentUser.id).maybeSingle();
+  currentProfile = profile;
+  if (!profile || profile.role === 'pending') {
+    showView('pending');
+    document.getElementById('btn-signout-pending').onclick = signOut;
+    return;
+  }
+  showView('app');
+  renderWhoAmI();
+  await refreshAll();
+  renderTabs();
+  renderActiveTab();
+}
+
+function showView(v){
+  ['auth-view','pending-view','app-view'].forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById(v+'-view').style.display = '';
+}
+
+function renderWhoAmI(){
+  document.getElementById('whoami').innerHTML = `
+    <span>${currentProfile.full_name || currentProfile.username} (${currentProfile.role})</span>
+    <button class="btn small" onclick="signOut()">خروج</button>
+  `;
+}
+
+// ============================================================
+// DATA LOADING
+// ============================================================
+async function refreshAll(){
+  const [s,o,l,p,sh,sp,pr,au,at] = await Promise.all([
+    sb.from('erp_suppliers').select('*').order('name'),
+    sb.from('erp_purchase_orders').select('*').order('created_at',{ascending:false}),
+    sb.from('erp_po_line_items').select('*').order('created_at'),
+    sb.from('erp_payments').select('*').order('due_date'),
+    sb.from('erp_shipments').select('*').order('created_at',{ascending:false}),
+    sb.from('erp_season_plan').select('*').order('need_by_date'),
+    sb.from('erp_profiles').select('*').order('username'),
+    sb.from('erp_audit_log').select('*').order('changed_at',{ascending:false}).limit(100),
+    sb.from('erp_attachments').select('*').order('created_at',{ascending:false}),
+  ]);
+  cache.suppliers = s.data||[];
+  cache.orders = o.data||[];
+  cache.lines = l.data||[];
+  cache.payments = p.data||[];
+  cache.shipments = sh.data||[];
+  cache.season = sp.data||[];
+  cache.profiles = pr.data||[];
+  cache.audit = au.data||[];
+  cache.attachments = at.data||[];
+}
+
+function supplierName(id){ const s = cache.suppliers.find(x=>x.id===id); return s ? s.name : '—'; }
+function linesFor(poId){ return cache.lines.filter(l=>l.po_id===poId); }
+function paymentsFor(poId){ return cache.payments.filter(p=>p.po_id===poId); }
+function shipmentsFor(poId){ return cache.shipments.filter(s=>s.po_id===poId); }
+function attachmentsFor(poId){ return cache.attachments.filter(a=>a.po_id===poId); }
+
+// ============================================================
+// TAB SYSTEM
+// ============================================================
+const TAB_DEFS = [
+  {id:'dashboard', label:'لوحة المؤشرات', icon:'📊', roles:['manager','data_entry','finance','viewer']},
+  {id:'orders', label:'أوامر الشراء', icon:'📋', roles:['manager','data_entry','finance','viewer']},
+  {id:'aging', label:'تقادم الأوامر', icon:'⏱️', roles:['manager','data_entry','finance','viewer']},
+  {id:'payments', label:'الدفعات', icon:'💰', roles:['manager','data_entry','finance','viewer']},
+  {id:'shipments', label:'الشحنات', icon:'🚢', roles:['manager','data_entry','finance','viewer']},
+  {id:'season', label:'خطة الموسم', icon:'📅', roles:['manager','data_entry','viewer']},
+  {id:'suppliers', label:'الموردون', icon:'🏭', roles:['manager','data_entry','viewer']},
+  {id:'comparison', label:'مقارنة الموردين', icon:'⚖️', roles:['manager','finance','viewer']},
+  {id:'audit', label:'سجل التعديلات', icon:'📝', roles:['manager']},
+  {id:'users', label:'المستخدمون', icon:'👥', roles:['manager']},
+];
+
+function renderTabs(){
+  const root = document.getElementById('tabs');
+  root.innerHTML = TAB_DEFS.filter(t=>t.roles.includes(currentProfile.role))
+    .map(t=>`<button data-tab="${t.id}" class="${t.id===activeTab?'active':''}">${t.icon} ${t.label}</button>`).join('');
+  root.querySelectorAll('button').forEach(b=>{
+    b.onclick = ()=>{ activeTab=b.dataset.tab; renderTabs(); renderActiveTab(); };
+  });
+}
+
+function canWrite(){ return ['manager','data_entry'].includes(currentProfile.role); }
+function canDelete(){ return currentProfile.role === 'manager'; }
+function ownsRow(row){ return row.created_by === currentUser.id || currentProfile.role === 'manager'; }
+
+function renderActiveTab(){
+  const root = document.getElementById('tab-content');
+  // Destroy old chart instances
+  Object.values(chartInstances).forEach(c=>c.destroy());
+  chartInstances = {};
+
+  const renderers = {
+    dashboard: renderDashboard,
+    orders: renderOrders,
+    aging: renderAging,
+    payments: renderPayments,
+    shipments: renderShipments,
+    season: renderSeason,
+    suppliers: renderSuppliers,
+    comparison: renderComparison,
+    audit: renderAudit,
+    users: renderUsers,
+  };
+  (renderers[activeTab] || (()=>{}))(root);
+}
+
+// ============================================================
+// DASHBOARD — Enhanced KPIs + Charts
+// ============================================================
+function renderDashboard(root){
+  const totalOrders = cache.orders.length;
+  const openOrders = cache.orders.filter(o=>o.status!=='مُستلم' && o.status!=='مُلغى').length;
+
+  // Data completeness
+  const reqFields = ['po_number','supplier_id','order_date','currency','status'];
+  let filled = 0, total = 0;
+  cache.orders.forEach(o=>{ reqFields.forEach(f=>{ total++; if(o[f]) filled++; }); });
+  const completeness = total ? Math.round(filled/total*100) : 0;
+
+  // Spend by supplier
+  const spendBySupplier = {};
+  cache.orders.forEach(o=>{
+    const lines = linesFor(o.id);
+    const spend = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
+    const name = supplierName(o.supplier_id);
+    spendBySupplier[name] = (spendBySupplier[name]||0) + spend;
+  });
+  const totalSpend = Object.values(spendBySupplier).reduce((a,b)=>a+b,0);
+  const topSupplier = Object.entries(spendBySupplier).sort((a,b)=>b[1]-a[1])[0];
+  const concentration = totalSpend ? Math.round((topSupplier?.[1]||0)/totalSpend*100) : 0;
+
+  // HHI (Herfindahl-Hirschman Index)
+  const hhi = totalSpend ? Object.values(spendBySupplier).reduce((sum,v)=>sum+Math.pow(v/totalSpend*100,2),0) : 0;
+
+  // Spend by currency
+  const spendByCurrency = {};
+  cache.orders.forEach(o=>{
+    const lines = linesFor(o.id);
+    const spend = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
+    const cur = o.currency || 'غير محدد';
+    spendByCurrency[cur] = (spendByCurrency[cur]||0) + spend;
+  });
+
+  // Payment status
+  const payStatusCounts = {مستحقة:0, مطلوبة:0, مُعتمدة:0, 'مُحوَّلة':0};
+  cache.payments.forEach(p=>{ if(payStatusCounts[p.status]!==undefined) payStatusCounts[p.status]++; });
+
+  // Overdue payments
+  const today = new Date().toISOString().slice(0,10);
+  const overdue = cache.payments.filter(p=>p.due_date && p.due_date < today && p.status!=='مُحوَّلة');
+
+  // Season adherence
+  const linkedSeason = cache.season.filter(s=>s.linked_po_id);
+  const seasonAdherence = cache.season.length ? Math.round(linkedSeason.length/cache.season.length*100) : 0;
+
+  // Nama soft upload rate
+  const namaUploaded = cache.orders.filter(o=>o.nama_uploaded).length;
+  const namaRate = totalOrders ? Math.round(namaUploaded/totalOrders*100) : 0;
+
+  // Data quality issues
+  const noDate = cache.orders.filter(o=>!o.order_date).length;
+  const noPrice = cache.lines.filter(l=>!l.unit_price && !l.line_total).length;
+
+  // Order types
+  const domestic = cache.orders.filter(o=>o.order_type==='محلي').length;
+  const international = cache.orders.filter(o=>o.order_type==='دولي').length;
+
+  // Active shipments
+  const activeShipments = cache.shipments.filter(s=>s.status!=='مُستلم').length;
+
+  // Closed orders + active suppliers + avg order value (SAR)
+  const closedOrders = cache.orders.filter(o=>o.status==='مُستلم').length;
+  const activeSuppliersCount = cache.suppliers.filter(s=>s.is_active!==false).length;
+  const ordersWithSar = cache.orders.filter(o=>o.total_sar);
+  const totalSarAll = ordersWithSar.reduce((s,o)=>s+Number(o.total_sar||0),0);
+  const avgOrderValueSar = ordersWithSar.length ? totalSarAll/ordersWithSar.length : 0;
+
+  // PO age (days) — open orders only
+  const msDay = 1000*60*60*24;
+  const nowMs = Date.now();
+  const openAges = cache.orders
+    .filter(o=>o.status!=='مُستلم' && o.status!=='مُلغى' && o.order_date)
+    .map(o=>Math.floor((nowMs - new Date(o.order_date).getTime())/msDay));
+  const avgOpenAge = openAges.length ? Math.round(openAges.reduce((a,b)=>a+b,0)/openAges.length) : 0;
+  const oldestOpenAge = openAges.length ? Math.max(...openAges) : 0;
+
+  // Commitments & outstanding payments by currency (cannot sum across currencies without a conversion rate per payment — shown as a breakdown, not invented as one figure)
+  const commitByCur = {}, outstandingByCur = {};
+  cache.payments.forEach(p=>{
+    const cur = p.currency || 'غير محدد';
+    commitByCur[cur] = (commitByCur[cur]||0) + Number(p.amount||0);
+    if (p.status !== 'مُحوَّلة') outstandingByCur[cur] = (outstandingByCur[cur]||0) + Number(p.amount||0);
+  });
+
+  root.innerHTML = `
+    <!-- KPI Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card blue">
+        <div class="kpi-icon">📦</div>
+        <div class="kpi-value">${totalOrders}</div>
+        <div class="kpi-label">إجمالي أوامر الشراء</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:100%"></div></div>
+      </div>
+      <div class="kpi-card ${openOrders > 0 ? 'amber' : 'green'}">
+        <div class="kpi-icon">📂</div>
+        <div class="kpi-value">${openOrders}</div>
+        <div class="kpi-label">أوامر مفتوحة</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${totalOrders?Math.round(openOrders/totalOrders*100):0}%"></div></div>
+      </div>
+      <div class="kpi-card ${completeness>=80?'green':completeness>=50?'amber':'red'}">
+        <div class="kpi-icon">✅</div>
+        <div class="kpi-value">${completeness}%</div>
+        <div class="kpi-label">اكتمال البيانات</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${completeness}%"></div></div>
+      </div>
+      <div class="kpi-card ${concentration>70?'red':concentration>50?'amber':'green'}">
+        <div class="kpi-icon">⚠️</div>
+        <div class="kpi-value">${concentration}%</div>
+        <div class="kpi-label">تركّز المورد الأعلى${topSupplier ? ' ('+topSupplier[0]+')' : ''}</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${concentration}%"></div></div>
+      </div>
+      <div class="kpi-card ${overdue.length>0?'red':'green'}">
+        <div class="kpi-icon">💸</div>
+        <div class="kpi-value">${overdue.length}</div>
+        <div class="kpi-label">دفعات متأخرة</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${cache.payments.length?Math.round(overdue.length/cache.payments.length*100):0}%"></div></div>
+      </div>
+      <div class="kpi-card ${seasonAdherence>=70?'green':seasonAdherence>=40?'amber':'red'}">
+        <div class="kpi-icon">📅</div>
+        <div class="kpi-value">${seasonAdherence}%</div>
+        <div class="kpi-label">الالتزام بخطة الموسم</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${seasonAdherence}%"></div></div>
+      </div>
+      <div class="kpi-card ${namaRate>=80?'green':namaRate>=50?'amber':'red'}">
+        <div class="kpi-icon">📤</div>
+        <div class="kpi-value">${namaRate}%</div>
+        <div class="kpi-label">نسبة الرفع لنما سوفت</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${namaRate}%"></div></div>
+      </div>
+      <div class="kpi-card blue">
+        <div class="kpi-icon">🚢</div>
+        <div class="kpi-value">${activeShipments}</div>
+        <div class="kpi-label">شحنات نشطة</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${cache.shipments.length?Math.round(activeShipments/cache.shipments.length*100):0}%"></div></div>
+      </div>
+      <div class="kpi-card green">
+        <div class="kpi-icon">✔️</div>
+        <div class="kpi-value">${closedOrders}</div>
+        <div class="kpi-label">أوامر مُغلقة (مُستلمة)</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${totalOrders?Math.round(closedOrders/totalOrders*100):0}%"></div></div>
+      </div>
+      <div class="kpi-card blue">
+        <div class="kpi-icon">🏭</div>
+        <div class="kpi-value">${activeSuppliersCount}</div>
+        <div class="kpi-label">موردون نشطون</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:100%"></div></div>
+      </div>
+      <div class="kpi-card blue">
+        <div class="kpi-icon">💵</div>
+        <div class="kpi-value">${fmtNum(totalSarAll)}</div>
+        <div class="kpi-label">إجمالي المبلغ (ر.س)</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:100%"></div></div>
+      </div>
+      <div class="kpi-card blue">
+        <div class="kpi-icon">📐</div>
+        <div class="kpi-value">${fmtNum(avgOrderValueSar)}</div>
+        <div class="kpi-label">متوسط قيمة الأمر (ر.س)</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:100%"></div></div>
+      </div>
+      <div class="kpi-card ${avgOpenAge>60?'red':avgOpenAge>30?'amber':'green'}">
+        <div class="kpi-icon">⏱️</div>
+        <div class="kpi-value">${avgOpenAge}</div>
+        <div class="kpi-label">متوسط عمر الأمر المفتوح (يوم)</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${Math.min(avgOpenAge,100)}%"></div></div>
+      </div>
+      <div class="kpi-card ${oldestOpenAge>90?'red':oldestOpenAge>45?'amber':'green'}">
+        <div class="kpi-icon">⌛</div>
+        <div class="kpi-value">${oldestOpenAge}</div>
+        <div class="kpi-label">أقدم أمر مفتوح (يوم)</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${Math.min(oldestOpenAge,100)}%"></div></div>
+      </div>
+    </div>
+
+    <!-- Financial commitments breakdown (by currency — summed per currency only; no invented FX conversion) -->
+    <div class="card" style="margin-top:14px">
+      <strong>الالتزامات المالية والدفعات المتبقية (حسب العملة)</strong>
+      <table style="margin-top:8px">
+        <thead><tr><th>العملة</th><th>إجمالي الالتزامات</th><th>المتبقي (غير محوَّل)</th></tr></thead>
+        <tbody>
+          ${Object.keys(commitByCur).length ? Object.keys(commitByCur).map(cur=>`
+            <tr><td>${cur}</td><td>${fmtNum(commitByCur[cur])}</td><td>${fmtNum(outstandingByCur[cur]||0)}</td></tr>
+          `).join('') : '<tr><td colspan="3" class="muted">لا توجد دفعات مسجلة</td></tr>'}
+        </tbody>
+      </table>
+      <p class="muted" style="margin-top:6px">⚠️ التوفير (savings) وعدد الأصناف المفاوَض عليها غير متاحين هنا — يتطلبان ربط بيانات التوفير الحيّة بأوامر الشراء، وهي غير موجودة بعد في جداول erp_*. لا نعرض أرقامًا مُخترَعة لهذين المؤشرين.</p>
+    </div>
+
+    <!-- Data Quality Alerts -->
+    ${(noDate > 0 || noPrice > 0) ? `
+    <div class="card" style="margin-top:14px;border-color:var(--warn);background:var(--warn-light)">
+      <strong style="color:var(--warn)">⚠️ تنبيهات جودة البيانات</strong>
+      <div style="margin-top:6px;font-size:13px;color:var(--text)">
+        ${noDate > 0 ? `<div>• ${noDate} أمر شراء بدون تاريخ (${Math.round(noDate/totalOrders*100)}%)</div>` : ''}
+        ${noPrice > 0 ? `<div>• ${noPrice} بند بدون سعر (${Math.round(noPrice/cache.lines.length*100)}%)</div>` : ''}
+      </div>
+    </div>` : ''}
+
+    <!-- Charts -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <h4>توزيع الإنفاق حسب المورد</h4>
+        <canvas id="chart-supplier-spend"></canvas>
+      </div>
+      <div class="chart-card">
+        <h4>الإنفاق حسب العملة</h4>
+        <canvas id="chart-currency-spend"></canvas>
+      </div>
+      <div class="chart-card">
+        <h4>حالة الدفعات</h4>
+        <canvas id="chart-payment-status"></canvas>
+      </div>
+      <div class="chart-card">
+        <h4>الأوامر: محلي vs دولي</h4>
+        <canvas id="chart-order-type"></canvas>
+      </div>
+    </div>
+
+    <p class="muted" style="margin-top:14px">المؤشرات محسوبة مباشرة من السجل الحالي (محسوب) — تُحدَّث لحظيًا. HHI = ${Math.round(hhi)}</p>
+  `;
+
+  // Render charts after DOM is ready
+  setTimeout(()=>{
+    renderSupplierSpendChart(spendBySupplier);
+    renderCurrencySpendChart(spendByCurrency);
+    renderPaymentStatusChart(payStatusCounts);
+    renderOrderTypeChart(domestic, international, totalOrders - domestic - international);
+  }, 50);
+}
+
+function renderSupplierSpendChart(data){
+  const ctx = document.getElementById('chart-supplier-spend');
+  if (!ctx) return;
+  const entries = Object.entries(data).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  chartInstances['supplier-spend'] = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: entries.map(e=>e[0]),
+      datasets: [{ data: entries.map(e=>e[1]), backgroundColor: CHART_COLORS.slice(0, entries.length), borderWidth: 2, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { position: 'bottom', rtl: true, labels: { font: { family: 'Noto Sans Arabic', size: 11 }, padding: 12 } },
+        tooltip: { rtl: true, callbacks: { label: (c) => c.label + ': ' + Number(c.raw).toLocaleString('ar-SA', {maximumFractionDigits:0}) } }
+      }
+    }
+  });
+}
+
+function renderCurrencySpendChart(data){
+  const ctx = document.getElementById('chart-currency-spend');
+  if (!ctx) return;
+  const entries = Object.entries(data);
+  chartInstances['currency-spend'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: entries.map(e=>e[0]),
+      datasets: [{ label: 'الإنفاق', data: entries.map(e=>e[1]), backgroundColor: CHART_COLORS.slice(0, entries.length), borderRadius: 6 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true, indexAxis: 'y',
+      plugins: { legend: { display: false }, tooltip: { rtl: true } },
+      scales: { x: { ticks: { callback: v=>Number(v).toLocaleString('ar-SA',{notation:'compact'}) } } }
+    }
+  });
+}
+
+function renderPaymentStatusChart(data){
+  const ctx = document.getElementById('chart-payment-status');
+  if (!ctx) return;
+  const labels = Object.keys(data);
+  const colors = ['#ef4444','#f59e0b','#3b82f6','#16a34a'];
+  chartInstances['payment-status'] = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: Object.values(data), backgroundColor: colors, borderWidth: 2, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { position: 'bottom', rtl: true, labels: { font: { family: 'Noto Sans Arabic', size: 11 }, padding: 12 } } }
+    }
+  });
+}
+
+function renderOrderTypeChart(domestic, international, other){
+  const ctx = document.getElementById('chart-order-type');
+  if (!ctx) return;
+  chartInstances['order-type'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['محلي','دولي','غير محدد'],
+      datasets: [{ label: 'عدد الأوامر', data: [domestic, international, other], backgroundColor: ['#2563eb','#7c3aed','#9ca3af'], borderRadius: 6 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+    }
+  });
+}
+
+// ============================================================
+// GENERIC HELPERS
+// ============================================================
+function exportToExcel(rows, filename){
+  if (!rows || !rows.length) { toast('لا توجد بيانات للتصدير'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  XLSX.writeFile(wb, filename + '.xlsx');
+}
+
+function openModal(html, onMount){
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `<div class="modal-overlay"><div class="modal">${html}</div></div>`;
+  root.querySelector('.modal-overlay').addEventListener('click', (e)=>{ if(e.target.classList.contains('modal-overlay')) closeModal(); });
+  if (onMount) onMount(root);
+}
+function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
+
+function supplierOptions(selected){
+  return cache.suppliers.map(s=>`<option value="${s.id}" ${s.id===selected?'selected':''}>${s.name}</option>`).join('');
+}
+function orderOptions(selected){
+  return cache.orders.map(o=>`<option value="${o.id}" ${o.id===selected?'selected':''}>${o.po_number || '(بلا رقم)'} — ${supplierName(o.supplier_id)}</option>`).join('');
+}
+
+// ============================================================
+// ORDERS — Enhanced with FX, Nama Soft, Attachments
+// ============================================================
+function renderOrders(root){
+  const canAdd = canWrite();
+  root.innerHTML = `
+    <div class="card">
+      <div class="toolbar">
+        <strong>أوامر الشراء (${cache.orders.length})</strong>
+        <div class="row" style="flex:0;gap:8px">
+          <button class="btn small" id="exp-orders">تصدير إكسل</button>
+          ${canAdd ? '<button class="btn primary small" id="add-order">+ أمر جديد</button>' : ''}
+        </div>
+      </div>
+      <div style="overflow:auto;max-height:60vh">
+      <table>
+        <thead><tr>
+          <th>رقم الأمر</th><th>المورد</th><th>النوع</th><th>العملة</th><th>سعر الصرف</th><th>الإجمالي (ر.س)</th>
+          <th>الحالة</th><th>نما سوفت</th><th>تاريخ الأمر</th><th>بنود</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${cache.orders.map(o=>{
+            const lines = linesFor(o.id);
+            const lineTotal = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
+            const sarTotal = o.total_sar || (o.exchange_rate_to_sar ? lineTotal * o.exchange_rate_to_sar : null);
+            return `<tr>
+              <td>${o.po_number || '—'}</td>
+              <td>${supplierName(o.supplier_id)}</td>
+              <td>${o.order_type||'—'}</td>
+              <td>${o.currency}</td>
+              <td>${o.exchange_rate_to_sar ? fmtNum(o.exchange_rate_to_sar) : '—'}</td>
+              <td>${sarTotal ? fmtNum(sarTotal) : '—'}</td>
+              <td><span class="badge ${o.status==='مُستلم'?'ok':o.status==='مُلغى'?'bad':'info'}">${o.status}</span></td>
+              <td>${o.nama_uploaded ? '<span class="badge ok">✓</span>' : '<span class="badge bad">✗</span>'}</td>
+              <td>${fmtDate(o.order_date)}</td>
+              <td>${lines.length}</td>
+              <td><button class="btn small" data-id="${o.id}" data-act="edit-order">تعديل</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+  root.querySelector('#exp-orders').onclick = () => exportToExcel(cache.orders.map(o=>{
+    const lines = linesFor(o.id);
+    const lineTotal = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
+    return {
+      رقم_الأمر:o.po_number, المورد:supplierName(o.supplier_id), النوع:o.order_type, العملة:o.currency,
+      سعر_الصرف:o.exchange_rate_to_sar, الإجمالي_بالعملة:lineTotal, الإجمالي_بالريال:o.total_sar,
+      الحالة:o.status, نما_سوفت:o.nama_uploaded?'نعم':'لا', تاريخ_الأمر:o.order_date, موعد_الحاجة:o.need_by_date, ملاحظات:o.notes
+    };
+  }), 'purchase_orders');
+  if (canAdd) root.querySelector('#add-order').onclick = () => openOrderModal(null);
+  root.querySelectorAll('[data-act="edit-order"]').forEach(b=>{
+    b.onclick = () => openOrderModal(cache.orders.find(o=>o.id===b.dataset.id));
+  });
+}
+
+function openOrderModal(order){
+  const isEdit = !!order;
+  const editable = !isEdit || ownsRow(order);
+  const attachments = isEdit ? attachmentsFor(order.id) : [];
+
+  openModal(`
+    <h3>${isEdit?'تعديل أمر شراء':'أمر شراء جديد'}</h3>
+    <div class="row">
+      <div class="field"><label>رقم الأمر</label><input id="f-po_number" value="${order?.po_number||''}" ${editable?'':'disabled'}></div>
+      <div class="field"><label>المورد</label><select id="f-supplier_id" ${editable?'':'disabled'}><option value="">—</option>${supplierOptions(order?.supplier_id)}</select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>نوع الطلب</label><select id="f-order_type" ${editable?'':'disabled'}>
+        <option value="">—</option><option value="محلي" ${order?.order_type==='محلي'?'selected':''}>محلي</option><option value="دولي" ${order?.order_type==='دولي'?'selected':''}>دولي</option>
+      </select></div>
+      <div class="field"><label>العملة</label><select id="f-currency" ${editable?'':'disabled'}>
+        ${['SAR','USD','EUR','CNY'].map(c=>`<option value="${c}" ${order?.currency===c?'selected':''}>${c}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>سعر الصرف للريال</label><input type="number" step="0.000001" id="f-exchange_rate" value="${order?.exchange_rate_to_sar||''}" ${editable?'':'disabled'} placeholder="مثال: 3.75"></div>
+      <div class="field"><label>الإجمالي بالريال (محسوب)</label><input id="f-total_sar" value="${order?.total_sar ? fmtNum(order.total_sar) : '—'}" disabled style="background:var(--bg);font-weight:600"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>الحالة</label><select id="f-status" ${editable?'':'disabled'}>
+        ${['مخطط','مؤكد','قيد الإنتاج','شُحن','وصل','مُستلم','مُلغى'].map(s=>`<option value="${s}" ${order?.status===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>تاريخ الأمر</label><input type="date" id="f-order_date" value="${order?.order_date||''}" ${editable?'':'disabled'}></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>موعد الحاجة</label><input type="date" id="f-need_by_date" value="${order?.need_by_date||''}" ${editable?'':'disabled'}></div>
+    </div>
+
+    <!-- Nama Soft Upload Status -->
+    <div style="margin:10px 0">
+      <label class="nama-toggle ${order?.nama_uploaded?'uploaded':''}">
+        <input type="checkbox" id="f-nama_uploaded" ${order?.nama_uploaded?'checked':''} ${editable?'':'disabled'}>
+        <span>تم الرفع على نما سوفت</span>
+        ${order?.nama_uploaded_at ? `<span class="muted" style="margin-right:8px">(${fmtDate(order.nama_uploaded_at)})</span>` : ''}
+      </label>
+    </div>
+
+    <div class="field"><label>ملاحظات</label><textarea id="f-notes" ${editable?'':'disabled'}>${order?.notes||''}</textarea></div>
+
+    ${isEdit ? renderLineItemsBlock(order) : `
+    <div class="card" style="margin-top:10px">
+      <strong>بند الصنف الأول</strong>
+      <p class="muted" style="margin:4px 0 10px">يمكن إضافة بنود إضافية بعد الحفظ.</p>
+      <div class="row">
+        <div class="field"><label>اسم الصنف</label><input id="f-item_name" placeholder="مثال: عود كمبودي"></div>
+        <div class="field"><label>الفئة</label><input id="f-item_category" placeholder="مثال: عبوات، مواد خام، كراتين"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>سعر الوحدة (المبلغ)</label><input type="number" step="0.0001" id="f-item_price"></div>
+        <div class="field"><label>الكمية</label><input type="number" step="0.01" id="f-item_qty"></div>
+      </div>
+    </div>`}
+
+    ${isEdit ? renderAttachmentsBlock(order, attachments) : ''}
+
+    <div class="row" style="margin-top:14px">
+      ${editable ? `<button class="btn primary" id="save-order">حفظ</button>` : ''}
+      <button class="btn" id="cancel-order">إغلاق</button>
+      ${isEdit && canDelete() ? `<button class="btn danger" id="del-order">حذف</button>` : ''}
+    </div>
+  `, (root)=>{
+    // Auto-calculate total SAR when exchange rate changes
+    const rateInput = root.querySelector('#f-exchange_rate');
+    const sarDisplay = root.querySelector('#f-total_sar');
+    const updateSar = () => {
+      if (isEdit) {
+        const lines = linesFor(order.id);
+        const lineTotal = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
+        const rate = parseFloat(rateInput.value) || 0;
+        sarDisplay.value = rate > 0 ? fmtNum(lineTotal * rate) : '—';
+      }
+    };
+    rateInput.addEventListener('input', updateSar);
+
+    // Nama toggle visual
+    const namaCheckbox = root.querySelector('#f-nama_uploaded');
+    namaCheckbox.addEventListener('change', () => {
+      namaCheckbox.closest('.nama-toggle').classList.toggle('uploaded', namaCheckbox.checked);
+    });
+
+    root.querySelector('#cancel-order').onclick = closeModal;
+    if (editable) root.querySelector('#save-order').onclick = async () => {
+      const lines = isEdit ? linesFor(order.id) : [];
+      let lineTotal = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
+      const rate = parseFloat(val('f-exchange_rate')) || null;
+
+      // First-item fields (new order only)
+      const firstItemName = !isEdit ? val('f-item_name').trim() : '';
+      const firstItemPrice = !isEdit ? (parseFloat(val('f-item_price'))||0) : 0;
+      const firstItemQty = !isEdit ? (parseFloat(val('f-item_qty'))||0) : 0;
+      const firstItemCategory = !isEdit ? (val('f-item_category')||null) : null;
+      if (!isEdit && firstItemName) lineTotal += firstItemPrice * firstItemQty;
+
+      const payload = {
+        po_number: val('f-po_number') || null,
+        supplier_id: val('f-supplier_id') || null,
+        order_type: val('f-order_type') || null,
+        currency: val('f-currency'),
+        status: val('f-status'),
+        order_date: val('f-order_date') || null,
+        need_by_date: val('f-need_by_date') || null,
+        notes: val('f-notes') || null,
+        exchange_rate_to_sar: rate,
+        total_sar: rate && lineTotal ? Math.round(lineTotal * rate * 100) / 100 : null,
+        nama_uploaded: namaCheckbox.checked,
+        nama_uploaded_at: namaCheckbox.checked && !order?.nama_uploaded ? new Date().toISOString() : (order?.nama_uploaded_at || null),
+      };
+      try {
+        if (isEdit) {
+          const { error } = await sb.from('erp_purchase_orders').update(payload).eq('id', order.id);
+          if (error) throw error;
+        } else {
+          payload.created_by = currentUser.id;
+          const { data: newOrder, error } = await sb.from('erp_purchase_orders').insert(payload).select().single();
+          if (error) throw error;
+          if (firstItemName) {
+            const { error: lineErr } = await sb.from('erp_po_line_items').insert({
+              po_id: newOrder.id, item_name: firstItemName, category: firstItemCategory,
+              unit_price: firstItemPrice, quantity: firstItemQty, currency: payload.currency,
+              created_by: currentUser.id,
+            });
+            if (lineErr) toast('تم حفظ الأمر، لكن حدث خطأ في حفظ البند: ' + lineErr.message);
+          }
+        }
+        toast('تم الحفظ'); closeModal(); await refreshAll(); renderActiveTab();
+      } catch(e){ toast('خطأ: ' + e.message); }
+    };
+    if (isEdit && canDelete()) root.querySelector('#del-order').onclick = async () => {
+      if (!confirm('حذف هذا الأمر وكل بنوده؟')) return;
+      const { error } = await sb.from('erp_purchase_orders').delete().eq('id', order.id);
+      if (error) { toast('خطأ: '+error.message); return; }
+      toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
+    };
+    wireLineItemsBlock(root, order);
+    if (isEdit) wireAttachmentsBlock(root, order);
+  });
+}
+
+// ============================================================
+// LINE ITEMS — Enhanced with Category
+// ============================================================
+function renderLineItemsBlock(order){
+  const lines = linesFor(order.id);
+  return `
+    <div class="card" style="margin-top:10px">
+      <div class="toolbar"><strong>بنود الأمر</strong>${canWrite()?'<button class="btn small" id="add-line">+ بند</button>':''}</div>
+      <table>
+        <thead><tr><th>الصنف</th><th>الفئة</th><th>سعر الوحدة</th><th>الكمية</th><th>الإجمالي</th><th></th></tr></thead>
+        <tbody id="lines-body">
+        ${lines.map(l=>`
+          <tr>
+            <td>${l.item_name}</td><td>${l.category||'—'}</td><td>${fmtNum(l.unit_price)}</td><td>${fmtNum(l.quantity)}</td><td>${fmtNum(l.line_total)}</td>
+            <td>${canWrite()?`<button class="btn small" data-lid="${l.id}" data-act="del-line">حذف</button>`:''}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function wireLineItemsBlock(root, order){
+  if (!order) return;
+  const addBtn = root.querySelector('#add-line');
+  if (addBtn) addBtn.onclick = () => {
+    openModal(`
+      <h3>بند جديد</h3>
+      <div class="field"><label>اسم الصنف</label><input id="l-item_name"></div>
+      <div class="row">
+        <div class="field"><label>الفئة</label><input id="l-category" placeholder="مثال: عبوات، مواد خام، كراتين"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>سعر الوحدة</label><input type="number" step="0.0001" id="l-unit_price"></div>
+        <div class="field"><label>الكمية</label><input type="number" step="0.01" id="l-quantity"></div>
+      </div>
+      <div class="field"><label>العملة</label><input id="l-currency" value="${order.currency}"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="save-line">حفظ البند</button>
+        <button class="btn" id="back-line">رجوع</button>
+      </div>
+    `, (r2)=>{
+      r2.querySelector('#back-line').onclick = () => openOrderModal(order);
+      r2.querySelector('#save-line').onclick = async () => {
+        const payload = {
+          po_id: order.id, item_name: val('l-item_name'),
+          unit_price: parseFloat(val('l-unit_price'))||0, quantity: parseFloat(val('l-quantity'))||0,
+          currency: val('l-currency'), category: val('l-category')||null, created_by: currentUser.id,
+        };
+        const { error } = await sb.from('erp_po_line_items').insert(payload);
+        if (error) { toast('خطأ: '+error.message); return; }
+        await refreshAll();
+        openOrderModal(cache.orders.find(o=>o.id===order.id));
+      };
+    });
+  };
+  root.querySelectorAll('[data-act="del-line"]').forEach(b=>{
+    b.onclick = async () => {
+      if (!confirm('حذف هذا البند؟')) return;
+      const { error } = await sb.from('erp_po_line_items').delete().eq('id', b.dataset.lid);
+      if (error) { toast('خطأ: '+error.message); return; }
+      await refreshAll();
+      openOrderModal(cache.orders.find(o=>o.id===order.id));
+    };
+  });
+}
+
+// ============================================================
+// ATTACHMENTS
+// ============================================================
+function renderAttachmentsBlock(order, attachments){
+  return `
+    <div class="card" style="margin-top:10px">
+      <div class="toolbar"><strong>المرفقات (${attachments.length})</strong></div>
+      <div class="attach-list" id="attach-list">
+        ${attachments.map(a=>`
+          <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span style="flex:1">${a.file_name || 'ملف'} <span class="muted">(${a.file_type||''})</span></span>
+            <a href="${SUPABASE_URL}/storage/v1/object/public/erp-attachments/${a.storage_path}" target="_blank" class="btn small">عرض</a>
+            ${canDelete()?`<button class="btn small danger" data-aid="${a.id}" data-act="del-attach">حذف</button>`:''}
+          </div>
+        `).join('')}
+        ${attachments.length===0 ? '<p class="muted">لا توجد مرفقات</p>' : ''}
+      </div>
+      ${canWrite() ? `
+      <div class="attach-area" id="attach-drop">
+        <p>📎 اسحب الملفات هنا أو <label style="color:var(--primary);cursor:pointer;text-decoration:underline">اختر ملفًا<input type="file" id="attach-input" style="display:none" multiple></label></p>
+        <p class="muted" id="attach-status"></p>
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function wireAttachmentsBlock(root, order){
+  const dropArea = root.querySelector('#attach-drop');
+  const fileInput = root.querySelector('#attach-input');
+  if (!dropArea || !fileInput) return;
+
+  ['dragenter','dragover'].forEach(e=>dropArea.addEventListener(e, (ev)=>{ ev.preventDefault(); dropArea.classList.add('dragover'); }));
+  ['dragleave','drop'].forEach(e=>dropArea.addEventListener(e, (ev)=>{ ev.preventDefault(); dropArea.classList.remove('dragover'); }));
+
+  dropArea.addEventListener('drop', (ev) => handleFiles(ev.dataTransfer.files, order));
+  fileInput.addEventListener('change', () => handleFiles(fileInput.files, order));
+
+  root.querySelectorAll('[data-act="del-attach"]').forEach(b=>{
+    b.onclick = async () => {
+      if (!confirm('حذف هذا المرفق؟')) return;
+      const att = cache.attachments.find(a=>a.id===b.dataset.aid);
+      if (att?.storage_path) {
+        await sb.storage.from('erp-attachments').remove([att.storage_path]);
+      }
+      const { error } = await sb.from('erp_attachments').delete().eq('id', b.dataset.aid);
+      if (error) { toast('خطأ: '+error.message); return; }
+      await refreshAll();
+      openOrderModal(cache.orders.find(o=>o.id===order.id));
+    };
+  });
+}
+
+async function handleFiles(files, order){
+  const statusEl = document.getElementById('attach-status');
+  for (const file of files) {
+    statusEl.textContent = `جارٍ رفع ${file.name}...`;
+    const path = `${order.id}/${Date.now()}_${file.name}`;
+    const { error: uploadError } = await sb.storage.from('erp-attachments').upload(path, file);
+    if (uploadError) { toast('خطأ في الرفع: ' + uploadError.message); continue; }
+    const { error: dbError } = await sb.from('erp_attachments').insert({
+      po_id: order.id, file_name: file.name, file_type: file.type,
+      file_size: file.size, storage_path: path, created_by: currentUser.id,
+    });
+    if (dbError) { toast('خطأ في التسجيل: ' + dbError.message); continue; }
+  }
+  statusEl.textContent = 'تم الرفع بنجاح ✓';
+  await refreshAll();
+  openOrderModal(cache.orders.find(o=>o.id===order.id));
+}
+
+// ============================================================
+// AGING REPORT — SLA / delivery duration per purchase order
+// ============================================================
+function renderAging(root){
+  const msDay = 1000*60*60*24;
+  const nowMs = Date.now();
+  const rows = cache.orders.map(o=>{
+    const ships = shipmentsFor(o.id);
+    const receivedDates = ships.map(s=>s.received_date).filter(Boolean);
+    const receivedDate = receivedDates.length ? receivedDates.sort().slice(-1)[0] : null;
+    const isClosed = o.status==='مُستلم' || !!receivedDate;
+    let ageDays = null;
+    if (o.order_date) {
+      const endMs = receivedDate ? new Date(receivedDate).getTime() : nowMs;
+      ageDays = Math.floor((endMs - new Date(o.order_date).getTime())/msDay);
+    }
+    let sla = '—', slaClass = '';
+    if (ageDays != null) {
+      if (ageDays <= 30) { sla = 'سريع'; slaClass='ok'; }
+      else if (ageDays <= 60) { sla = 'ضمن المعتاد'; slaClass='info'; }
+      else { sla = isClosed ? 'متأخر' : 'مفتوح ومتأخر'; slaClass='bad'; }
+    }
+    return { o, receivedDate, isClosed, ageDays, sla, slaClass };
+  }).filter(r=>r.ageDays!=null).sort((a,b)=>b.ageDays-a.ageDays);
+
+  const closedRows = rows.filter(r=>r.isClosed);
+  const avgClosedAge = closedRows.length ? Math.round(closedRows.reduce((s,r)=>s+r.ageDays,0)/closedRows.length) : 0;
+  const delayedOpen = rows.filter(r=>!r.isClosed && r.ageDays>60).length;
+  const oldestOpen = rows.filter(r=>!r.isClosed).sort((a,b)=>b.ageDays-a.ageDays)[0];
+
+  root.innerHTML = `
+    <div class="kpi-grid" style="margin-bottom:14px">
+      <div class="kpi-card green"><div class="kpi-icon">📊</div><div class="kpi-value">${avgClosedAge}</div><div class="kpi-label">متوسط مدة التوريد للأوامر المستلمة (يوم)</div></div>
+      <div class="kpi-card ${delayedOpen>0?'red':'green'}"><div class="kpi-icon">🚨</div><div class="kpi-value">${delayedOpen}</div><div class="kpi-label">أوامر مفتوحة ومتأخرة (أكثر من 60 يوم)</div></div>
+      <div class="kpi-card amber"><div class="kpi-icon">⌛</div><div class="kpi-value">${oldestOpen?oldestOpen.ageDays:0}</div><div class="kpi-label">أقدم أمر مفتوح (يوم)${oldestOpen?' — '+(oldestOpen.o.po_number||''):''}</div></div>
+    </div>
+    <div class="card">
+      <div class="toolbar">
+        <strong>تقرير تقادم أوامر الشراء (${rows.length})</strong>
+        <button class="btn small" id="exp-aging">تصدير إكسل</button>
+      </div>
+      <p class="muted" style="margin-bottom:8px">تصنيف تقريبي (محسوب): سريع ≤30 يوم · ضمن المعتاد 31–60 يوم · متأخر &gt;60 يوم. المدة = تاريخ الأمر → تاريخ الاستلام (آخر شحنة مستلمة)، أو حتى اليوم إن كان الأمر مفتوحًا.</p>
+      <div style="overflow:auto;max-height:60vh">
+      <table>
+        <thead><tr><th>رقم الأمر</th><th>المورد</th><th>النوع</th><th>تاريخ الطلب</th><th>تاريخ الاستلام</th><th>الحالة</th><th>المدة (يوم)</th><th>التصنيف</th></tr></thead>
+        <tbody>
+          ${rows.map(r=>`
+            <tr>
+              <td>${r.o.po_number||'—'}</td>
+              <td>${supplierName(r.o.supplier_id)}</td>
+              <td>${r.o.order_type||'—'}</td>
+              <td>${fmtDate(r.o.order_date)}</td>
+              <td>${r.receivedDate?fmtDate(r.receivedDate):'—'}</td>
+              <td>${r.o.status}</td>
+              <td><strong>${r.ageDays}</strong></td>
+              <td><span class="badge ${r.slaClass}">${r.sla}</span></td>
+            </tr>`).join('')}
+          ${rows.length===0?'<tr><td colspan="8" class="muted">لا توجد أوامر بتاريخ طلب مسجّل</td></tr>':''}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+  root.querySelector('#exp-aging').onclick = () => exportToExcel(rows.map(r=>({
+    رقم_الأمر:r.o.po_number, المورد:supplierName(r.o.supplier_id), النوع:r.o.order_type,
+    تاريخ_الطلب:r.o.order_date, تاريخ_الاستلام:r.receivedDate, الحالة:r.o.status, المدة_بالأيام:r.ageDays, التصنيف:r.sla
+  })), 'aging_report');
+}
+
+// ============================================================
+// PAYMENTS
+// ============================================================
+function renderPayments(root){
+  const canAdd = canWrite();
+  const canFinance = currentProfile.role === 'finance' || currentProfile.role === 'manager';
+  root.innerHTML = `
+    <div class="card">
+      <div class="toolbar">
+        <strong>الدفعات (${cache.payments.length})</strong>
+        <div class="row" style="flex:0;gap:8px">
+          <button class="btn small" id="exp-pay">تصدير إكسل</button>
+          ${canAdd ? '<button class="btn primary small" id="add-pay">+ دفعة جديدة</button>' : ''}
+        </div>
+      </div>
+      <div style="overflow:auto;max-height:60vh">
+      <table>
+        <thead><tr><th>الأمر</th><th>المورد</th><th>الصنف</th><th>الفئة</th><th>الكمية</th><th>#</th><th>المبلغ</th><th>تاريخ الاستحقاق</th><th>الحالة</th><th>تاريخ التحويل</th><th></th></tr></thead>
+        <tbody>
+          ${cache.payments.map(p=>{
+            const po = cache.orders.find(o=>o.id===p.po_id);
+            const supName = p.supplier_id ? supplierName(p.supplier_id) : (po ? supplierName(po.supplier_id) : '—');
+            const isOverdue = p.due_date && p.due_date < today && p.status!=='مُحوَّلة';
+            return `<tr style="${isOverdue?'background:var(--danger-light)':''}">
+              <td>${po?po.po_number||'—':'—'}</td>
+              <td>${supName}</td>
+              <td>${p.item_name||'—'}</td>
+              <td>${p.category||'—'}</td>
+              <td>${p.quantity!=null?fmtNum(p.quantity):'—'}</td>
+              <td>${p.payment_seq}</td>
+              <td>${fmtNum(p.amount)} ${p.currency||''}</td>
+              <td>${fmtDate(p.due_date)} ${isOverdue?'<span class="badge bad">متأخرة</span>':''}</td>
+              <td>${statusBadge(p.status)}</td>
+              <td>${fmtDate(p.transferred_date)}</td>
+              <td>${(canAdd||canFinance)?`<button class="btn small" data-id="${p.id}" data-act="edit-pay">تعديل</button>`:''}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+  root.querySelector('#exp-pay').onclick = () => exportToExcel(cache.payments.map(p=>{
+    const po = cache.orders.find(o=>o.id===p.po_id);
+    const supName = p.supplier_id ? supplierName(p.supplier_id) : (po ? supplierName(po.supplier_id) : '');
+    return { رقم_الأمر: po?.po_number, المورد: supName, الصنف:p.item_name, الفئة:p.category, الكمية:p.quantity, الدفعة: p.payment_seq, المبلغ:p.amount, العملة:p.currency, تاريخ_الاستحقاق:p.due_date, الحالة:p.status, تاريخ_التحويل:p.transferred_date, المرجع:p.reference };
+  }), 'payments');
+  if (canAdd) root.querySelector('#add-pay').onclick = () => openPaymentModal(null);
+  root.querySelectorAll('[data-act="edit-pay"]').forEach(b=>{
+    b.onclick = () => openPaymentModal(cache.payments.find(p=>p.id===b.dataset.id));
+  });
+}
+const today = new Date().toISOString().slice(0,10);
+
+function statusBadge(s){
+  const cls = s==='مُحوَّلة'?'ok':(s==='مُعتمدة'||s==='مطلوبة')?'warn':'bad';
+  return `<span class="badge ${cls}">${s}</span>`;
+}
+
+function openPaymentModal(payment){
+  const isEdit = !!payment;
+  const canFinance = currentProfile.role === 'finance' || currentProfile.role === 'manager';
+  const editable = !isEdit || ownsRow(payment) || canFinance;
+  openModal(`
+    <h3>${isEdit?'تعديل دفعة':'دفعة جديدة'}</h3>
+    <div class="row">
+      <div class="field"><label>أمر الشراء</label><select id="p-po_id"><option value="">—</option>${orderOptions(payment?.po_id)}</select></div>
+      <div class="field"><label>المورد</label><select id="p-supplier_id"><option value="">—</option>${supplierOptions(payment?.supplier_id)}</select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>الصنف</label><input id="p-item_name" value="${payment?.item_name||''}" placeholder="اسم الصنف المرتبط بالدفعة"></div>
+      <div class="field"><label>الفئة</label><input id="p-category" value="${payment?.category||''}" placeholder="مثال: عبوات، مواد خام"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>الكمية</label><input type="number" step="0.01" id="p-quantity" value="${payment?.quantity||''}"></div>
+      <div class="field"><label>رقم الدفعة</label><input type="number" id="p-payment_seq" value="${payment?.payment_seq||1}"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>المبلغ</label><input type="number" step="0.01" id="p-amount" value="${payment?.amount||''}"></div>
+      <div class="field"><label>العملة</label><select id="p-currency">${['SAR','USD','EUR'].map(c=>`<option ${payment?.currency===c?'selected':''}>${c}</option>`).join('')}</select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>تاريخ الاستحقاق</label><input type="date" id="p-due_date" value="${payment?.due_date||''}"></div>
+      <div class="field"><label>تاريخ التحويل</label><input type="date" id="p-transferred_date" value="${payment?.transferred_date||''}"></div>
+    </div>
+    <div class="field"><label>الحالة</label><select id="p-status">${['مستحقة','مطلوبة','مُعتمدة','مُحوَّلة'].map(s=>`<option ${payment?.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="field"><label>المرجع</label><input id="p-reference" value="${payment?.reference||''}"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="save-pay">حفظ</button>
+      <button class="btn" id="cancel-pay">إغلاق</button>
+      ${isEdit && canDelete() ? `<button class="btn danger" id="del-pay">حذف</button>` : ''}
+    </div>
+  `, (root)=>{
+    // Auto-fill supplier when a PO is selected (still overridable)
+    const poSelect = root.querySelector('#p-po_id');
+    const supSelect = root.querySelector('#p-supplier_id');
+    poSelect.addEventListener('change', () => {
+      const po = cache.orders.find(o=>o.id===poSelect.value);
+      if (po?.supplier_id) supSelect.value = po.supplier_id;
+    });
+    root.querySelector('#cancel-pay').onclick = closeModal;
+    root.querySelector('#save-pay').onclick = async () => {
+      const payload = {
+        po_id: val('p-po_id')||null, supplier_id: val('p-supplier_id')||null,
+        item_name: val('p-item_name')||null, category: val('p-category')||null,
+        quantity: parseFloat(val('p-quantity'))||null,
+        payment_seq: parseInt(val('p-payment_seq'))||1,
+        amount: parseFloat(val('p-amount'))||null, currency: val('p-currency'),
+        due_date: val('p-due_date')||null, status: val('p-status'),
+        transferred_date: val('p-transferred_date')||null, reference: val('p-reference')||null,
+      };
+      try {
+        if (isEdit) {
+          const { error } = await sb.from('erp_payments').update(payload).eq('id', payment.id);
+          if (error) throw error;
+        } else {
+          payload.created_by = currentUser.id;
+          const { error } = await sb.from('erp_payments').insert(payload);
+          if (error) throw error;
+        }
+        toast('تم الحفظ'); closeModal(); await refreshAll(); renderActiveTab();
+      } catch(e){ toast('خطأ: '+e.message); }
+    };
+    if (isEdit && canDelete()) root.querySelector('#del-pay').onclick = async () => {
+      if (!confirm('حذف هذه الدفعة؟')) return;
+      const { error } = await sb.from('erp_payments').delete().eq('id', payment.id);
+      if (error) { toast('خطأ: '+error.message); return; }
+      toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
+    };
+  });
+}
+
+// ============================================================
+// SHIPMENTS — Enhanced with Shipping Line + Tracking URL
+// ============================================================
+const SHIP_MILESTONES = [
+  ['supplier_confirmed_date','تأكيد المورد'], ['production_done_date','انتهاء الإنتاج'],
+  ['inspection_date','الفحص'], ['shipped_date','الشحن'], ['eta_date','الوصول المتوقع'],
+  ['ata_date','الوصول الفعلي'], ['customs_cleared_date','التخليص الجمركي'], ['received_date','الاستلام'],
+];
+
+function renderShipments(root){
+  const canAdd = canWrite();
+  root.innerHTML = `
+    <div class="card">
+      <div class="toolbar">
+        <strong>الشحنات (${cache.shipments.length})</strong>
+        <div class="row" style="flex:0;gap:8px">
+          <button class="btn small" id="exp-ship">تصدير إكسل</button>
+          ${canAdd ? '<button class="btn primary small" id="add-ship">+ شحنة جديدة</button>' : ''}
+        </div>
+      </div>
+      <div style="overflow:auto;max-height:60vh">
+      <table>
+        <thead><tr><th>الأمر</th><th>المورد</th><th>رقم الحاوية</th><th>شركة الشحن</th><th>تاريخ طلب الحاوية</th><th>الوصول المتوقع</th><th>الوصول الفعلي</th><th>الكمية الإجمالية</th><th>آخر محطة</th><th>الحالة</th><th>التتبع</th><th>تحديث بواسطة</th><th></th></tr></thead>
+        <tbody>
+          ${cache.shipments.map(s=>{
+            const po = cache.orders.find(o=>o.id===s.po_id);
+            const lastDone = SHIP_MILESTONES.filter(m=>s[m[0]]).pop();
+            const progress = SHIP_MILESTONES.filter(m=>s[m[0]]).length;
+            return `<tr>
+              <td>${po?po.po_number||'—':'—'}</td>
+              <td>${po?supplierName(po.supplier_id):'—'}</td>
+              <td><strong>${s.container_number||'—'}</strong></td>
+              <td>${s.shipping_line||'—'}</td>
+              <td>${fmtDate(s.container_order_date)}</td>
+              <td>${fmtDate(s.eta_date)}</td>
+              <td>${fmtDate(s.ata_date)}</td>
+              <td>${s.total_quantity!=null?fmtNum(s.total_quantity):'—'}</td>
+              <td>${lastDone?lastDone[1]:'—'} <span class="muted">(${progress}/${SHIP_MILESTONES.length})</span></td>
+              <td>${s.status||'—'}</td>
+              <td>${s.tracking_url ? `<a href="${s.tracking_url}" target="_blank" class="btn small" style="color:var(--primary)">تتبع ↗</a>` : '—'}</td>
+              <td>${userLabel(s.updated_by)}</td>
+              <td>${canAdd?`<button class="btn small" data-id="${s.id}" data-act="edit-ship">تعديل</button>`:''}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+  root.querySelector('#exp-ship').onclick = () => exportToExcel(cache.shipments.map(s=>{
+    const po = cache.orders.find(o=>o.id===s.po_id);
+    const row = { رقم_الأمر: po?.po_number, المورد: po?supplierName(po.supplier_id):'', رقم_الحاوية: s.container_number, شركة_الشحن: s.shipping_line,
+      تاريخ_طلب_الحاوية: s.container_order_date, محتويات_الحاوية: s.container_contents, الكمية_الإجمالية: s.total_quantity,
+      رابط_التتبع: s.tracking_url, الحالة: s.status, تم_التحديث_بواسطة: userLabel(s.updated_by), ملاحظات: s.notes };
+    SHIP_MILESTONES.forEach(m=>row[m[1]]=s[m[0]]); return row;
+  }), 'shipments');
+  if (canAdd) root.querySelector('#add-ship').onclick = () => openShipmentModal(null);
+  root.querySelectorAll('[data-act="edit-ship"]').forEach(b=>{
+    b.onclick = () => openShipmentModal(cache.shipments.find(s=>s.id===b.dataset.id));
+  });
+}
+
+function openShipmentModal(ship){
+  const isEdit = !!ship;
+  openModal(`
+    <h3>${isEdit?'تعديل شحنة':'شحنة جديدة'}</h3>
+    <div class="field"><label>أمر الشراء</label><select id="s-po_id">${orderOptions(ship?.po_id)}</select></div>
+    <div class="row">
+      <div class="field"><label>رقم الحاوية</label><input id="s-container_number" value="${ship?.container_number||''}" placeholder="XXXX1234567"></div>
+      <div class="field"><label>شركة الشحن</label><input id="s-shipping_line" value="${ship?.shipping_line||''}" placeholder="مثال: MSC, Maersk, CMA CGM"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>تاريخ طلب الحاوية</label><input type="date" id="s-container_order_date" value="${ship?.container_order_date||''}"></div>
+      <div class="field"><label>الكمية الإجمالية</label><input type="number" step="0.01" id="s-total_quantity" value="${ship?.total_quantity||''}"></div>
+    </div>
+    <div class="field"><label>محتويات الحاوية (التفاصيل)</label><textarea id="s-container_contents" placeholder="تفاصيل الأصناف داخل الحاوية">${ship?.container_contents||''}</textarea></div>
+    <div class="field"><label>رابط التتبع</label><input id="s-tracking_url" value="${ship?.tracking_url||''}" placeholder="https://..."></div>
+    <div class="row">
+      ${SHIP_MILESTONES.map(([key,label])=>`<div class="field"><label>${label}</label><input type="date" id="s-${key}" value="${ship?.[key]||''}"></div>`).join('')}
+    </div>
+    <div class="field"><label>الحالة</label><input id="s-status" value="${ship?.status||''}"></div>
+    <div class="field"><label>ملاحظات</label><textarea id="s-notes">${ship?.notes||''}</textarea></div>
+    ${isEdit && ship?.updated_by ? `<p class="muted">آخر تحديث بواسطة: ${userLabel(ship.updated_by)}</p>` : ''}
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="save-ship">حفظ</button>
+      <button class="btn" id="cancel-ship">إغلاق</button>
+      ${isEdit && canDelete() ? `<button class="btn danger" id="del-ship">حذف</button>` : ''}
+    </div>
+  `, (root)=>{
+    root.querySelector('#cancel-ship').onclick = closeModal;
+    root.querySelector('#save-ship').onclick = async () => {
+      const payload = {
+        po_id: val('s-po_id'), container_number: val('s-container_number')||null,
+        shipping_line: val('s-shipping_line')||null, tracking_url: val('s-tracking_url')||null,
+        container_order_date: val('s-container_order_date')||null,
+        container_contents: val('s-container_contents')||null,
+        total_quantity: parseFloat(val('s-total_quantity'))||null,
+        notes: val('s-notes')||null,
+        status: val('s-status')||null,
+        updated_by: currentUser.id,
+      };
+      SHIP_MILESTONES.forEach(([key])=> payload[key] = val('s-'+key) || null);
+      try {
+        if (isEdit) {
+          const { error } = await sb.from('erp_shipments').update(payload).eq('id', ship.id);
+          if (error) throw error;
+        } else {
+          payload.created_by = currentUser.id;
+          const { error } = await sb.from('erp_shipments').insert(payload);
+          if (error) throw error;
+        }
+        toast('تم الحفظ'); closeModal(); await refreshAll(); renderActiveTab();
+      } catch(e){ toast('خطأ: '+e.message); }
+    };
+    if (isEdit && canDelete()) root.querySelector('#del-ship').onclick = async () => {
+      if (!confirm('حذف هذه الشحنة؟')) return;
+      const { error } = await sb.from('erp_shipments').delete().eq('id', ship.id);
+      if (error) { toast('خطأ: '+error.message); return; }
+      toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
+    };
+  });
+}
+
+// ============================================================
+// SEASON PLAN
+// ============================================================
+function computeCommitment(f){
+  if (!f.need_by_date) return null;
+  const d = new Date(f.need_by_date);
+  const totalDays = (parseInt(f.production_days)||0)+(parseInt(f.shipping_days)||0)+(parseInt(f.customs_days)||0)+(parseInt(f.inspection_days)||0)+(parseInt(f.margin_days)||0);
+  d.setDate(d.getDate() - totalDays);
+  return d.toISOString().slice(0,10);
+}
+function renderSeason(root){
+  const canAdd = canWrite();
+  root.innerHTML = `
+    <div class="card">
+      <div class="toolbar">
+        <strong>خطة الـ6 أشهر (${cache.season.length})</strong>
+        <div class="row" style="flex:0;gap:8px">
+          <button class="btn small" id="exp-season">تصدير إكسل</button>
+          ${canAdd ? '<button class="btn primary small" id="add-season">+ بند جديد</button>' : ''}
+        </div>
+      </div>
+      <div style="overflow:auto;max-height:60vh">
+      <table>
+        <thead><tr><th>الصنف</th><th>المورد</th><th>موعد الحاجة</th><th>موعد الالتزام (محسوب)</th><th>مرتبط بأمر؟</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+          ${cache.season.map(s=>`
+            <tr>
+              <td>${s.item_name}</td><td>${supplierName(s.supplier_id)}</td>
+              <td>${fmtDate(s.need_by_date)}</td><td><strong>${fmtDate(s.commitment_date)}</strong></td>
+              <td>${s.linked_po_id? '✓' : '—'}</td><td>${s.status}</td>
+              <td>${canAdd?`<button class="btn small" data-id="${s.id}" data-act="edit-season">تعديل</button>`:''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+      <p class="muted" style="margin-top:8px">موعد الالتزام = موعد الحاجة − (إنتاج + شحن + تخليص + فحص + هامش) — SOP-01</p>
+    </div>
+  `;
+  root.querySelector('#exp-season').onclick = () => exportToExcel(cache.season.map(s=>({
+    الصنف:s.item_name, المورد:supplierName(s.supplier_id), موعد_الحاجة:s.need_by_date, موعد_الالتزام:s.commitment_date,
+    أيام_الإنتاج:s.production_days, أيام_الشحن:s.shipping_days, أيام_التخليص:s.customs_days, أيام_الفحص:s.inspection_days, أيام_الهامش:s.margin_days, الحالة:s.status
+  })), 'season_plan');
+  if (canAdd) root.querySelector('#add-season').onclick = () => openSeasonModal(null);
+  root.querySelectorAll('[data-act="edit-season"]').forEach(b=>{
+    b.onclick = () => openSeasonModal(cache.season.find(s=>s.id===b.dataset.id));
+  });
+}
+function openSeasonModal(item){
+  const isEdit = !!item;
+  openModal(`
+    <h3>${isEdit?'تعديل بند خطة الموسم':'بند جديد في خطة الموسم'}</h3>
+    <div class="row">
+      <div class="field"><label>اسم الصنف</label><input id="sp-item_name" value="${item?.item_name||''}"></div>
+      <div class="field"><label>المورد</label><select id="sp-supplier_id"><option value="">—</option>${supplierOptions(item?.supplier_id)}</select></div>
+    </div>
+    <div class="field"><label>موعد الحاجة</label><input type="date" id="sp-need_by_date" value="${item?.need_by_date||''}"></div>
+    <div class="row">
+      <div class="field"><label>أيام الإنتاج</label><input type="number" id="sp-production_days" value="${item?.production_days||0}"></div>
+      <div class="field"><label>أيام الشحن</label><input type="number" id="sp-shipping_days" value="${item?.shipping_days||0}"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>أيام التخليص</label><input type="number" id="sp-customs_days" value="${item?.customs_days||0}"></div>
+      <div class="field"><label>أيام الفحص</label><input type="number" id="sp-inspection_days" value="${item?.inspection_days||0}"></div>
+      <div class="field"><label>أيام الهامش</label><input type="number" id="sp-margin_days" value="${item?.margin_days||0}"></div>
+    </div>
+    <p class="muted">موعد الالتزام التقديري: <strong id="sp-preview">—</strong></p>
+    <div class="field"><label>مرتبط بأمر شراء (اختياري)</label><select id="sp-linked_po_id"><option value="">—</option>${orderOptions(item?.linked_po_id)}</select></div>
+    <div class="field"><label>الحالة</label><input id="sp-status" value="${item?.status||'مخطط'}"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="save-season">حفظ</button>
+      <button class="btn" id="cancel-season">إغلاق</button>
+      ${isEdit && canDelete() ? `<button class="btn danger" id="del-season">حذف</button>` : ''}
+    </div>
+  `, (root)=>{
+    const preview = () => {
+      const f = { need_by_date: val('sp-need_by_date'), production_days: val('sp-production_days'), shipping_days: val('sp-shipping_days'), customs_days: val('sp-customs_days'), inspection_days: val('sp-inspection_days'), margin_days: val('sp-margin_days') };
+      root.querySelector('#sp-preview').textContent = computeCommitment(f) || '—';
+    };
+    ['sp-need_by_date','sp-production_days','sp-shipping_days','sp-customs_days','sp-inspection_days','sp-margin_days'].forEach(id=>{
+      root.querySelector('#'+id).addEventListener('input', preview);
+    });
+    preview();
+    root.querySelector('#cancel-season').onclick = closeModal;
+    root.querySelector('#save-season').onclick = async () => {
+      const payload = {
+        item_name: val('sp-item_name'), supplier_id: val('sp-supplier_id')||null,
+        need_by_date: val('sp-need_by_date')||null,
+        production_days: parseInt(val('sp-production_days'))||0, shipping_days: parseInt(val('sp-shipping_days'))||0,
+        customs_days: parseInt(val('sp-customs_days'))||0, inspection_days: parseInt(val('sp-inspection_days'))||0,
+        margin_days: parseInt(val('sp-margin_days'))||0,
+        linked_po_id: val('sp-linked_po_id')||null, status: val('sp-status')||'مخطط',
+      };
+      try {
+        if (isEdit) {
+          const { error } = await sb.from('erp_season_plan').update(payload).eq('id', item.id);
+          if (error) throw error;
+        } else {
+          payload.created_by = currentUser.id;
+          const { error } = await sb.from('erp_season_plan').insert(payload);
+          if (error) throw error;
+        }
+        toast('تم الحفظ'); closeModal(); await refreshAll(); renderActiveTab();
+      } catch(e){ toast('خطأ: '+e.message); }
+    };
+    if (isEdit && canDelete()) root.querySelector('#del-season').onclick = async () => {
+      if (!confirm('حذف هذا البند؟')) return;
+      const { error } = await sb.from('erp_season_plan').delete().eq('id', item.id);
+      if (error) { toast('خطأ: '+error.message); return; }
+      toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
+    };
+  });
+}
+
+// ============================================================
+// SUPPLIERS
+// ============================================================
+function renderSuppliers(root){
+  const canAdd = canWrite();
+  root.innerHTML = `
+    <div class="card">
+      <div class="toolbar">
+        <strong>الموردون (${cache.suppliers.length})</strong>
+        <div class="row" style="flex:0;gap:8px">
+          <button class="btn small" id="exp-sup">تصدير إكسل</button>
+          ${canAdd ? '<button class="btn primary small" id="add-sup">+ مورد جديد</button>' : ''}
+        </div>
+      </div>
+      <div style="overflow:auto;max-height:60vh">
+      <table>
+        <thead><tr><th>الاسم</th><th>الفئة</th><th>الدولة</th><th>شروط الدفع</th><th>مهلة التوريد (يوم)</th><th>نشط؟</th><th></th></tr></thead>
+        <tbody>
+          ${cache.suppliers.map(s=>`
+            <tr>
+              <td>${s.name}</td><td>${s.category||'—'}</td><td>${s.country||'—'}</td>
+              <td>${s.payment_terms||'—'}</td><td>${s.lead_time_days??'—'}</td>
+              <td>${s.is_active?'✓':'—'}</td>
+              <td>${canAdd?`<button class="btn small" data-id="${s.id}" data-act="edit-sup">تعديل</button>`:''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+  root.querySelector('#exp-sup').onclick = () => exportToExcel(cache.suppliers.map(s=>({
+    الاسم:s.name, الفئة:s.category, الدولة:s.country, شروط_الدفع:s.payment_terms, مهلة_التوريد:s.lead_time_days, نشط:s.is_active, ملاحظات:s.notes
+  })), 'suppliers');
+  if (canAdd) root.querySelector('#add-sup').onclick = () => openSupplierModal(null);
+  root.querySelectorAll('[data-act="edit-sup"]').forEach(b=>{
+    b.onclick = () => openSupplierModal(cache.suppliers.find(s=>s.id===b.dataset.id));
+  });
+}
+function openSupplierModal(sup){
+  const isEdit = !!sup;
+  openModal(`
+    <h3>${isEdit?'تعديل مورد':'مورد جديد'}</h3>
+    <div class="row">
+      <div class="field"><label>الاسم</label><input id="su-name" value="${sup?.name||''}"></div>
+      <div class="field"><label>الفئة</label><input id="su-category" value="${sup?.category||''}"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>الدولة</label><input id="su-country" value="${sup?.country||''}"></div>
+      <div class="field"><label>مهلة التوريد (يوم)</label><input type="number" id="su-lead_time_days" value="${sup?.lead_time_days||''}"></div>
+    </div>
+    <div class="field"><label>شروط الدفع</label><input id="su-payment_terms" value="${sup?.payment_terms||''}"></div>
+    <div class="field"><label><input type="checkbox" id="su-is_active" ${sup?.is_active!==false?'checked':''} style="width:auto;display:inline-block;margin-left:6px"> نشط</label></div>
+    <div class="field"><label>ملاحظات</label><textarea id="su-notes">${sup?.notes||''}</textarea></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="save-sup">حفظ</button>
+      <button class="btn" id="cancel-sup">إغلاق</button>
+      ${isEdit && canDelete() ? `<button class="btn danger" id="del-sup">حذف</button>` : ''}
+    </div>
+  `, (root)=>{
+    root.querySelector('#cancel-sup').onclick = closeModal;
+    root.querySelector('#save-sup').onclick = async () => {
+      const payload = {
+        name: val('su-name'), category: val('su-category')||null, country: val('su-country')||null,
+        lead_time_days: parseInt(val('su-lead_time_days'))||null, payment_terms: val('su-payment_terms')||null,
+        is_active: root.querySelector('#su-is_active').checked, notes: val('su-notes')||null,
+      };
+      try {
+        if (isEdit) {
+          const { error } = await sb.from('erp_suppliers').update(payload).eq('id', sup.id);
+          if (error) throw error;
+        } else {
+          payload.created_by = currentUser.id;
+          const { error } = await sb.from('erp_suppliers').insert(payload);
+          if (error) throw error;
+        }
+        toast('تم الحفظ'); closeModal(); await refreshAll(); renderActiveTab();
+      } catch(e){ toast('خطأ: '+e.message); }
+    };
+    if (isEdit && canDelete()) root.querySelector('#del-sup').onclick = async () => {
+      if (!confirm('حذف هذا المورد؟')) return;
+      const { error } = await sb.from('erp_suppliers').delete().eq('id', sup.id);
+      if (error) { toast('خطأ: '+error.message); return; }
+      toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
+    };
+  });
+}
+
+// ============================================================
+// SUPPLIER COMPARISON (NEW TAB)
+// ============================================================
+function renderComparison(root){
+  // Compute stats per supplier
+  const stats = cache.suppliers.map(s => {
+    const orders = cache.orders.filter(o=>o.supplier_id===s.id);
+    const lines = orders.flatMap(o=>linesFor(o.id));
+    const totalSpend = lines.reduce((sum,l)=>sum+(l.line_total||l.unit_price*l.quantity||0),0);
+    const payments = orders.flatMap(o=>paymentsFor(o.id));
+    const paidPayments = payments.filter(p=>p.status==='مُحوَّلة');
+    const shipments = orders.flatMap(o=>shipmentsFor(o.id));
+    const receivedShipments = shipments.filter(sh=>sh.received_date);
+
+    return {
+      ...s, orderCount: orders.length, lineCount: lines.length, totalSpend,
+      paymentCount: payments.length, paidCount: paidPayments.length,
+      shipmentCount: shipments.length, receivedCount: receivedShipments.length,
+      currencies: [...new Set(orders.map(o=>o.currency))].join(', '),
+    };
+  }).filter(s=>s.orderCount > 0).sort((a,b)=>b.totalSpend-a.totalSpend);
+
+  const totalSpendAll = stats.reduce((s,x)=>s+x.totalSpend,0);
+
+  root.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <h4 style="margin-bottom:10px">مقارنة الموردين — ملخص تنفيذي</h4>
+      <div style="margin-bottom:10px">
+        <canvas id="chart-supplier-compare" style="max-height:300px"></canvas>
+      </div>
+      <button class="btn small" id="exp-compare">تصدير إكسل</button>
+    </div>
+    <div class="compare-grid">
+      ${stats.map((s, i)=>`
+        <div class="supplier-card">
+          <h4>${i+1}. ${s.name} ${!s.is_active?'<span class="badge bad">غير نشط</span>':''}</h4>
+          <div class="stat-row"><span class="stat-label">الدولة</span><span class="stat-value">${s.country||'—'}</span></div>
+          <div class="stat-row"><span class="stat-label">عدد الأوامر</span><span class="stat-value">${s.orderCount}</span></div>
+          <div class="stat-row"><span class="stat-label">عدد البنود</span><span class="stat-value">${s.lineCount}</span></div>
+          <div class="stat-row"><span class="stat-label">إجمالي الإنفاق</span><span class="stat-value">${fmtNum(s.totalSpend)}</span></div>
+          <div class="stat-row"><span class="stat-label">نسبة من الإجمالي</span><span class="stat-value ${totalSpendAll && s.totalSpend/totalSpendAll>0.5?'style="color:var(--danger);font-weight:700"':''}">${totalSpendAll ? Math.round(s.totalSpend/totalSpendAll*100) : 0}%</span></div>
+          <div class="stat-row"><span class="stat-label">العملات</span><span class="stat-value">${s.currencies||'—'}</span></div>
+          <div class="stat-row"><span class="stat-label">الدفعات (مسددة/إجمالي)</span><span class="stat-value">${s.paidCount}/${s.paymentCount}</span></div>
+          <div class="stat-row"><span class="stat-label">الشحنات (مُستلمة/إجمالي)</span><span class="stat-value">${s.receivedCount}/${s.shipmentCount}</span></div>
+          <div class="stat-row"><span class="stat-label">مهلة التوريد</span><span class="stat-value">${s.lead_time_days ? s.lead_time_days+' يوم' : '—'}</span></div>
+          <div class="stat-row"><span class="stat-label">شروط الدفع</span><span class="stat-value">${s.payment_terms||'—'}</span></div>
+        </div>
+      `).join('')}
+      ${stats.length===0 ? '<div class="card"><p class="muted">لا توجد بيانات كافية للمقارنة</p></div>' : ''}
+    </div>
+  `;
+
+  root.querySelector('#exp-compare').onclick = () => exportToExcel(stats.map(s=>({
+    المورد:s.name, الدولة:s.country, عدد_الأوامر:s.orderCount, إجمالي_الإنفاق:s.totalSpend,
+    النسبة_من_الإجمالي: totalSpendAll ? Math.round(s.totalSpend/totalSpendAll*100)+'%' : '0%',
+    الدفعات_المسددة:s.paidCount, إجمالي_الدفعات:s.paymentCount,
+    الشحنات_المستلمة:s.receivedCount, إجمالي_الشحنات:s.shipmentCount,
+    مهلة_التوريد:s.lead_time_days, شروط_الدفع:s.payment_terms
+  })), 'supplier_comparison');
+
+  // Comparison chart
+  setTimeout(()=>{
+    const ctx = document.getElementById('chart-supplier-compare');
+    if (!ctx || stats.length === 0) return;
+    chartInstances['supplier-compare'] = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: stats.map(s=>s.name),
+        datasets: [
+          { label: 'إجمالي الإنفاق', data: stats.map(s=>s.totalSpend), backgroundColor: '#2563eb', borderRadius: 4 },
+          { label: 'عدد الأوامر ×1000', data: stats.map(s=>s.orderCount*1000), backgroundColor: '#7c3aed', borderRadius: 4 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { position: 'bottom', rtl: true, labels: { font: { family: 'Noto Sans Arabic', size: 11 } } } },
+        scales: { y: { beginAtZero: true, ticks: { callback: v=>Number(v).toLocaleString('ar-SA',{notation:'compact'}) } } }
+      }
+    });
+  }, 50);
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+const TABLE_LABELS = {
+  erp_suppliers:'الموردون', erp_purchase_orders:'أوامر الشراء', erp_po_line_items:'بنود الأوامر',
+  erp_payments:'الدفعات', erp_shipments:'الشحنات', erp_season_plan:'خطة الموسم',
+  erp_attachments:'المرفقات',
+};
+function renderAudit(root){
+  root.innerHTML = `
+    <div class="card">
+      <div class="toolbar"><strong>سجل التعديلات (آخر ${cache.audit.length} حركة)</strong>
+        <button class="btn small" id="exp-audit">تصدير إكسل</button>
+      </div>
+      <div style="overflow:auto;max-height:65vh">
+      <table>
+        <thead><tr><th>الوقت</th><th>الجدول</th><th>العملية</th><th>بواسطة</th><th></th></tr></thead>
+        <tbody>
+          ${cache.audit.map(a=>`
+            <tr>
+              <td>${new Date(a.changed_at).toLocaleString('ar-SA')}</td>
+              <td>${TABLE_LABELS[a.table_name]||a.table_name}</td>
+              <td>${({INSERT:'إضافة',UPDATE:'تعديل',DELETE:'حذف'})[a.action]||a.action}</td>
+              <td>${userLabel(a.changed_by)}</td>
+              <td><button class="btn small" data-id="${a.id}" data-act="view-audit">تفاصيل</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+  root.querySelector('#exp-audit').onclick = () => exportToExcel(cache.audit.map(a=>({
+    الوقت:a.changed_at, الجدول:a.table_name, العملية:a.action, بواسطة:userLabel(a.changed_by)
+  })), 'audit_log');
+  root.querySelectorAll('[data-act="view-audit"]').forEach(b=>{
+    b.onclick = () => {
+      const a = cache.audit.find(x=>x.id==b.dataset.id);
+      openModal(`
+        <h3>تفاصيل الحركة</h3>
+        <p class="muted">${TABLE_LABELS[a.table_name]||a.table_name} · ${a.action} · ${new Date(a.changed_at).toLocaleString('ar-SA')}</p>
+        ${a.old_data?`<p><strong>قبل:</strong></p><pre style="white-space:pre-wrap;font-size:11px;background:var(--bg);padding:8px;border-radius:6px;overflow:auto;max-height:200px">${JSON.stringify(a.old_data,null,2)}</pre>`:''}
+        ${a.new_data?`<p><strong>بعد:</strong></p><pre style="white-space:pre-wrap;font-size:11px;background:var(--bg);padding:8px;border-radius:6px;overflow:auto;max-height:200px">${JSON.stringify(a.new_data,null,2)}</pre>`:''}
+        <button class="btn" id="close-audit" style="margin-top:10px">إغلاق</button>
+      `, (r)=>{ r.querySelector('#close-audit').onclick = closeModal; });
+    };
+  });
+}
+function userLabel(id){ const p = cache.profiles.find(x=>x.id===id); return p ? (p.full_name||p.username) : (id||'—'); }
+
+// ============================================================
+// USERS (manager only)
+// ============================================================
+function renderUsers(root){
+  root.innerHTML = `
+    <div class="card">
+      <strong>المستخدمون (${cache.profiles.length})</strong>
+      <div style="overflow:auto;max-height:65vh;margin-top:10px">
+      <table>
+        <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور الحالي</th><th>تغيير الدور</th></tr></thead>
+        <tbody>
+          ${cache.profiles.map(p=>`
+            <tr>
+              <td>${p.full_name||'—'}</td><td>${p.username||'—'}</td>
+              <td>${p.role==='pending'?'<span class="badge warn">قيد المراجعة</span>':p.role}</td>
+              <td>
+                <select data-id="${p.id}" class="role-select" style="width:auto;display:inline-block">
+                  ${['pending','data_entry','manager','finance','viewer'].map(r=>`<option value="${r}" ${p.role===r?'selected':''}>${r}</option>`).join('')}
+                </select>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+  root.querySelectorAll('.role-select').forEach(sel=>{
+    sel.onchange = async () => {
+      const { error } = await sb.from('erp_profiles').update({role: sel.value}).eq('id', sel.dataset.id);
+      if (error) { toast('خطأ: '+error.message); return; }
+      toast('تم تحديث الدور'); await refreshAll(); renderActiveTab();
+    };
+  });
+}
+
+// ============================================================
+// INIT
+// ============================================================
+(async function init(){
+  const { data } = await sb.auth.getSession();
+  currentUser = data.session ? data.session.user : null;
+  await boot();
+})();
+</script>
+</body>
+</html>
