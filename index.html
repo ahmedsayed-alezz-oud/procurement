@@ -194,7 +194,7 @@ function emailFor(input){
 let currentUser = null;
 let currentProfile = null;
 let activeTab = 'dashboard';
-let cache = { suppliers:[], orders:[], lines:[], payments:[], shipments:[], season:[], profiles:[], audit:[], attachments:[] };
+let cache = { suppliers:[], orders:[], lines:[], payments:[], shipments:[], season:[], profiles:[], audit:[], attachments:[], samples:[], warehouseReceipts:[], warehouseReceiptLines:[] };
 let chartInstances = {};
 
 // ============================================================
@@ -282,7 +282,7 @@ function renderWhoAmI(){
 // DATA LOADING
 // ============================================================
 async function refreshAll(){
-  const [s,o,l,p,sh,sp,pr,au,at] = await Promise.all([
+  const [s,o,l,p,sh,sp,pr,au,at,sm,wr,wl] = await Promise.all([
     sb.from('erp_suppliers').select('*').order('name'),
     sb.from('erp_purchase_orders').select('*').order('created_at',{ascending:false}),
     sb.from('erp_po_line_items').select('*').order('created_at'),
@@ -292,6 +292,9 @@ async function refreshAll(){
     sb.from('erp_profiles').select('*').order('username'),
     sb.from('erp_audit_log').select('*').order('changed_at',{ascending:false}).limit(100),
     sb.from('erp_attachments').select('*').order('created_at',{ascending:false}),
+    sb.from('erp_samples').select('*').order('created_at',{ascending:false}),
+    sb.from('erp_warehouse_receipts').select('*').order('created_at',{ascending:false}),
+    sb.from('erp_warehouse_receipt_lines').select('*').order('created_at'),
   ]);
   cache.suppliers = s.data||[];
   cache.orders = o.data||[];
@@ -302,13 +305,17 @@ async function refreshAll(){
   cache.profiles = pr.data||[];
   cache.audit = au.data||[];
   cache.attachments = at.data||[];
+  cache.samples = sm.data||[];
+  cache.warehouseReceipts = wr.data||[];
+  cache.warehouseReceiptLines = wl.data||[];
 }
 
 function supplierName(id){ const s = cache.suppliers.find(x=>x.id===id); return s ? s.name : '—'; }
 function linesFor(poId){ return cache.lines.filter(l=>l.po_id===poId); }
 function paymentsFor(poId){ return cache.payments.filter(p=>p.po_id===poId); }
 function shipmentsFor(poId){ return cache.shipments.filter(s=>s.po_id===poId); }
-function attachmentsFor(poId){ return cache.attachments.filter(a=>a.po_id===poId); }
+function attachmentsFor(entityType, entityId){ return cache.attachments.filter(a=>a.entity_type===entityType && a.entity_id===entityId); }
+function receiptLinesFor(receiptId){ return cache.warehouseReceiptLines.filter(l=>l.receipt_id===receiptId); }
 
 // ============================================================
 // TAB SYSTEM
@@ -321,6 +328,8 @@ const TAB_DEFS = [
   {id:'shipments', label:'الشحنات', icon:'🚢', roles:['manager','data_entry','finance','viewer']},
   {id:'season', label:'خطة الموسم', icon:'📅', roles:['manager','data_entry','viewer']},
   {id:'suppliers', label:'الموردون', icon:'🏭', roles:['manager','data_entry','viewer']},
+  {id:'samples', label:'العينات', icon:'🧪', roles:['manager','data_entry','viewer']},
+  {id:'warehouse_receipts', label:'استلام المستودع', icon:'📥', roles:['manager','data_entry','finance','viewer']},
   {id:'comparison', label:'مقارنة الموردين', icon:'⚖️', roles:['manager','finance','viewer']},
   {id:'audit', label:'سجل التعديلات', icon:'📝', roles:['manager']},
   {id:'users', label:'المستخدمون', icon:'👥', roles:['manager']},
@@ -353,6 +362,8 @@ function renderActiveTab(){
     shipments: renderShipments,
     season: renderSeason,
     suppliers: renderSuppliers,
+    samples: renderSamples,
+    warehouse_receipts: renderWarehouseReceipts,
     comparison: renderComparison,
     audit: renderAudit,
     users: renderUsers,
@@ -754,7 +765,7 @@ function renderOrders(root){
 function openOrderModal(order){
   const isEdit = !!order;
   const editable = !isEdit || ownsRow(order);
-  const attachments = isEdit ? attachmentsFor(order.id) : [];
+  const attachments = isEdit ? attachmentsFor('po', order.id) : [];
 
   openModal(`
     <h3>${isEdit?'تعديل أمر شراء':'أمر شراء جديد'}</h3>
@@ -809,7 +820,7 @@ function openOrderModal(order){
       </div>
     </div>`}
 
-    ${isEdit ? renderAttachmentsBlock(order, attachments) : ''}
+    ${isEdit ? renderAttachmentsBlock('po', order.id, attachments) : ''}
 
     <div class="row" style="margin-top:14px">
       ${editable ? `<button class="btn primary" id="save-order">حفظ</button>` : ''}
@@ -890,7 +901,7 @@ function openOrderModal(order){
       toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
     };
     wireLineItemsBlock(root, order);
-    if (isEdit) wireAttachmentsBlock(root, order);
+    if (isEdit) wireAttachmentsBlock(root, 'po', order.id, () => openOrderModal(cache.orders.find(o=>o.id===order.id)));
   });
 }
 
@@ -964,7 +975,8 @@ function wireLineItemsBlock(root, order){
 // ============================================================
 // ATTACHMENTS
 // ============================================================
-function renderAttachmentsBlock(order, attachments){
+// entityType is one of: 'po','payment','shipment','supplier','season','sample','receipt'
+function renderAttachmentsBlock(entityType, entityId, attachments){
   return `
     <div class="card" style="margin-top:10px">
       <div class="toolbar"><strong>المرفقات (${attachments.length})</strong></div>
@@ -972,7 +984,7 @@ function renderAttachmentsBlock(order, attachments){
         ${attachments.map(a=>`
           <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
             <span style="flex:1">${a.file_name || 'ملف'} <span class="muted">(${a.file_type||''})</span></span>
-            <a href="${SUPABASE_URL}/storage/v1/object/public/erp-attachments/${a.storage_path}" target="_blank" class="btn small">عرض</a>
+            <button class="btn small" data-aid="${a.id}" data-act="view-attach">عرض</button>
             ${canDelete()?`<button class="btn small danger" data-aid="${a.id}" data-act="del-attach">حذف</button>`:''}
           </div>
         `).join('')}
@@ -980,14 +992,39 @@ function renderAttachmentsBlock(order, attachments){
       </div>
       ${canWrite() ? `
       <div class="attach-area" id="attach-drop">
-        <p>📎 اسحب الملفات هنا أو <label style="color:var(--primary);cursor:pointer;text-decoration:underline">اختر ملفًا<input type="file" id="attach-input" style="display:none" multiple></label></p>
+        <p>📎 اسحب الملفات هنا أو <label style="color:var(--primary);cursor:pointer;text-decoration:underline">اختر ملفًا (صورة منتج، أمر استلام، شهادة جمركية، أمر شراء نما...)<input type="file" id="attach-input" style="display:none" multiple></label></p>
         <p class="muted" id="attach-status"></p>
       </div>` : ''}
     </div>
   `;
 }
 
-function wireAttachmentsBlock(root, order){
+function wireAttachmentsBlock(root, entityType, entityId, onRefresh){
+  // عرض مرفق — الحاوية خاصة (bucket: public=false)، لذا نستخدم رابط موقّع بدل رابط عام
+  root.querySelectorAll('[data-act="view-attach"]').forEach(b=>{
+    b.onclick = async () => {
+      const att = cache.attachments.find(a=>a.id===b.dataset.aid);
+      if (!att?.file_path) { toast('لا يمكن إيجاد مسار الملف'); return; }
+      const { data, error } = await sb.storage.from('erp-attachments').createSignedUrl(att.file_path, 120);
+      if (error) { toast('خطأ: '+error.message); return; }
+      window.open(data.signedUrl, '_blank');
+    };
+  });
+
+  root.querySelectorAll('[data-act="del-attach"]').forEach(b=>{
+    b.onclick = async () => {
+      if (!confirm('حذف هذا المرفق؟')) return;
+      const att = cache.attachments.find(a=>a.id===b.dataset.aid);
+      if (att?.file_path) {
+        await sb.storage.from('erp-attachments').remove([att.file_path]);
+      }
+      const { error } = await sb.from('erp_attachments').delete().eq('id', b.dataset.aid);
+      if (error) { toast('خطأ: '+error.message); return; }
+      await refreshAll();
+      onRefresh();
+    };
+  });
+
   const dropArea = root.querySelector('#attach-drop');
   const fileInput = root.querySelector('#attach-input');
   if (!dropArea || !fileInput) return;
@@ -995,40 +1032,26 @@ function wireAttachmentsBlock(root, order){
   ['dragenter','dragover'].forEach(e=>dropArea.addEventListener(e, (ev)=>{ ev.preventDefault(); dropArea.classList.add('dragover'); }));
   ['dragleave','drop'].forEach(e=>dropArea.addEventListener(e, (ev)=>{ ev.preventDefault(); dropArea.classList.remove('dragover'); }));
 
-  dropArea.addEventListener('drop', (ev) => handleFiles(ev.dataTransfer.files, order));
-  fileInput.addEventListener('change', () => handleFiles(fileInput.files, order));
-
-  root.querySelectorAll('[data-act="del-attach"]').forEach(b=>{
-    b.onclick = async () => {
-      if (!confirm('حذف هذا المرفق؟')) return;
-      const att = cache.attachments.find(a=>a.id===b.dataset.aid);
-      if (att?.storage_path) {
-        await sb.storage.from('erp-attachments').remove([att.storage_path]);
-      }
-      const { error } = await sb.from('erp_attachments').delete().eq('id', b.dataset.aid);
-      if (error) { toast('خطأ: '+error.message); return; }
-      await refreshAll();
-      openOrderModal(cache.orders.find(o=>o.id===order.id));
-    };
-  });
+  dropArea.addEventListener('drop', (ev) => handleFiles(ev.dataTransfer.files, entityType, entityId, onRefresh));
+  fileInput.addEventListener('change', () => handleFiles(fileInput.files, entityType, entityId, onRefresh));
 }
 
-async function handleFiles(files, order){
+async function handleFiles(files, entityType, entityId, onRefresh){
   const statusEl = document.getElementById('attach-status');
   for (const file of files) {
-    statusEl.textContent = `جارٍ رفع ${file.name}...`;
-    const path = `${order.id}/${Date.now()}_${file.name}`;
+    if (statusEl) statusEl.textContent = `جارٍ رفع ${file.name}...`;
+    const path = `${entityType}/${entityId}/${Date.now()}_${file.name}`;
     const { error: uploadError } = await sb.storage.from('erp-attachments').upload(path, file);
     if (uploadError) { toast('خطأ في الرفع: ' + uploadError.message); continue; }
     const { error: dbError } = await sb.from('erp_attachments').insert({
-      po_id: order.id, file_name: file.name, file_type: file.type,
-      file_size: file.size, storage_path: path, created_by: currentUser.id,
+      entity_type: entityType, entity_id: entityId, file_name: file.name, file_type: file.type,
+      file_size: file.size, file_path: path, uploaded_by: currentUser.id,
     });
     if (dbError) { toast('خطأ في التسجيل: ' + dbError.message); continue; }
   }
-  statusEl.textContent = 'تم الرفع بنجاح ✓';
+  if (statusEl) statusEl.textContent = 'تم الرفع بنجاح ✓';
   await refreshAll();
-  openOrderModal(cache.orders.find(o=>o.id===order.id));
+  onRefresh();
 }
 
 // ============================================================
@@ -1163,6 +1186,7 @@ function openPaymentModal(payment){
   const isEdit = !!payment;
   const canFinance = currentProfile.role === 'finance' || currentProfile.role === 'manager';
   const editable = !isEdit || ownsRow(payment) || canFinance;
+  const attachments = isEdit ? attachmentsFor('payment', payment.id) : [];
   openModal(`
     <h3>${isEdit?'تعديل دفعة':'دفعة جديدة'}</h3>
     <div class="row">
@@ -1187,6 +1211,7 @@ function openPaymentModal(payment){
     </div>
     <div class="field"><label>الحالة</label><select id="p-status">${['مستحقة','مطلوبة','مُعتمدة','مُحوَّلة'].map(s=>`<option ${payment?.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
     <div class="field"><label>المرجع</label><input id="p-reference" value="${payment?.reference||''}"></div>
+    ${isEdit ? renderAttachmentsBlock('payment', payment.id, attachments) : ''}
     <div class="row" style="margin-top:14px">
       <button class="btn primary" id="save-pay">حفظ</button>
       <button class="btn" id="cancel-pay">إغلاق</button>
@@ -1229,6 +1254,7 @@ function openPaymentModal(payment){
       if (error) { toast('خطأ: '+error.message); return; }
       toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
     };
+    if (isEdit) wireAttachmentsBlock(root, 'payment', payment.id, () => openPaymentModal(cache.payments.find(p=>p.id===payment.id)));
   });
 }
 
@@ -1296,6 +1322,7 @@ function renderShipments(root){
 
 function openShipmentModal(ship){
   const isEdit = !!ship;
+  const attachments = isEdit ? attachmentsFor('shipment', ship.id) : [];
   openModal(`
     <h3>${isEdit?'تعديل شحنة':'شحنة جديدة'}</h3>
     <div class="field"><label>أمر الشراء</label><select id="s-po_id">${orderOptions(ship?.po_id)}</select></div>
@@ -1315,6 +1342,7 @@ function openShipmentModal(ship){
     <div class="field"><label>الحالة</label><input id="s-status" value="${ship?.status||''}"></div>
     <div class="field"><label>ملاحظات</label><textarea id="s-notes">${ship?.notes||''}</textarea></div>
     ${isEdit && ship?.updated_by ? `<p class="muted">آخر تحديث بواسطة: ${userLabel(ship.updated_by)}</p>` : ''}
+    ${isEdit ? renderAttachmentsBlock('shipment', ship.id, attachments) : ''}
     <div class="row" style="margin-top:14px">
       <button class="btn primary" id="save-ship">حفظ</button>
       <button class="btn" id="cancel-ship">إغلاق</button>
@@ -1352,6 +1380,7 @@ function openShipmentModal(ship){
       if (error) { toast('خطأ: '+error.message); return; }
       toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
     };
+    if (isEdit) wireAttachmentsBlock(root, 'shipment', ship.id, () => openShipmentModal(cache.shipments.find(s=>s.id===ship.id)));
   });
 }
 
@@ -1404,6 +1433,7 @@ function renderSeason(root){
 }
 function openSeasonModal(item){
   const isEdit = !!item;
+  const attachments = isEdit ? attachmentsFor('season', item.id) : [];
   openModal(`
     <h3>${isEdit?'تعديل بند خطة الموسم':'بند جديد في خطة الموسم'}</h3>
     <div class="row">
@@ -1423,6 +1453,7 @@ function openSeasonModal(item){
     <p class="muted">موعد الالتزام التقديري: <strong id="sp-preview">—</strong></p>
     <div class="field"><label>مرتبط بأمر شراء (اختياري)</label><select id="sp-linked_po_id"><option value="">—</option>${orderOptions(item?.linked_po_id)}</select></div>
     <div class="field"><label>الحالة</label><input id="sp-status" value="${item?.status||'مخطط'}"></div>
+    ${isEdit ? renderAttachmentsBlock('season', item.id, attachments) : ''}
     <div class="row" style="margin-top:14px">
       <button class="btn primary" id="save-season">حفظ</button>
       <button class="btn" id="cancel-season">إغلاق</button>
@@ -1465,6 +1496,7 @@ function openSeasonModal(item){
       if (error) { toast('خطأ: '+error.message); return; }
       toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
     };
+    if (isEdit) wireAttachmentsBlock(root, 'season', item.id, () => openSeasonModal(cache.season.find(s=>s.id===item.id)));
   });
 }
 
@@ -1508,6 +1540,7 @@ function renderSuppliers(root){
 }
 function openSupplierModal(sup){
   const isEdit = !!sup;
+  const attachments = isEdit ? attachmentsFor('supplier', sup.id) : [];
   openModal(`
     <h3>${isEdit?'تعديل مورد':'مورد جديد'}</h3>
     <div class="row">
@@ -1521,6 +1554,7 @@ function openSupplierModal(sup){
     <div class="field"><label>شروط الدفع</label><input id="su-payment_terms" value="${sup?.payment_terms||''}"></div>
     <div class="field"><label><input type="checkbox" id="su-is_active" ${sup?.is_active!==false?'checked':''} style="width:auto;display:inline-block;margin-left:6px"> نشط</label></div>
     <div class="field"><label>ملاحظات</label><textarea id="su-notes">${sup?.notes||''}</textarea></div>
+    ${isEdit ? renderAttachmentsBlock('supplier', sup.id, attachments) : ''}
     <div class="row" style="margin-top:14px">
       <button class="btn primary" id="save-sup">حفظ</button>
       <button class="btn" id="cancel-sup">إغلاق</button>
@@ -1552,6 +1586,308 @@ function openSupplierModal(sup){
       if (error) { toast('خطأ: '+error.message); return; }
       toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
     };
+    if (isEdit) wireAttachmentsBlock(root, 'supplier', sup.id, () => openSupplierModal(cache.suppliers.find(s=>s.id===sup.id)));
+  });
+}
+
+// ============================================================
+// SAMPLES — قسم تطوير المنتجات (العينات المستلمة من الموردين)
+// ============================================================
+function sampleStatusBadge(s){
+  const cls = s==='مقبول'?'ok':(s==='مرفوض')?'bad':'warn';
+  return `<span class="badge ${cls}">${s||'—'}</span>`;
+}
+
+function renderSamples(root){
+  const canAdd = canWrite();
+  root.innerHTML = `
+    <div class="card">
+      <div class="toolbar">
+        <strong>العينات (${cache.samples.length})</strong>
+        <div class="row" style="flex:0;gap:8px">
+          <button class="btn small" id="exp-samples">تصدير إكسل</button>
+          ${canAdd ? '<button class="btn primary small" id="add-sample">+ عينة جديدة</button>' : ''}
+        </div>
+      </div>
+      <div style="overflow:auto;max-height:60vh">
+      <table>
+        <thead><tr><th>الصنف</th><th>المورد</th><th>الفئة</th><th>الكمية</th><th>تاريخ الاستلام</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+          ${cache.samples.map(s=>`
+            <tr>
+              <td>${s.item_name}</td><td>${supplierName(s.supplier_id)}</td><td>${s.category||'—'}</td>
+              <td>${s.quantity!=null?fmtNum(s.quantity)+' '+(s.unit||''):'—'}</td>
+              <td>${fmtDate(s.received_date)}</td>
+              <td>${sampleStatusBadge(s.status)}</td>
+              <td>${canAdd?`<button class="btn small" data-id="${s.id}" data-act="edit-sample">تعديل</button>`:''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+  root.querySelector('#exp-samples').onclick = () => exportToExcel(cache.samples.map(s=>({
+    الصنف:s.item_name, المورد:supplierName(s.supplier_id), الفئة:s.category, الكمية:s.quantity, الوحدة:s.unit,
+    تاريخ_الاستلام:s.received_date, الحالة:s.status, ملاحظات_القرار:s.decision_notes, ملاحظات:s.notes
+  })), 'samples');
+  if (canAdd) root.querySelector('#add-sample').onclick = () => openSampleModal(null);
+  root.querySelectorAll('[data-act="edit-sample"]').forEach(b=>{
+    b.onclick = () => openSampleModal(cache.samples.find(s=>s.id===b.dataset.id));
+  });
+}
+
+function openSampleModal(sample){
+  const isEdit = !!sample;
+  const attachments = isEdit ? attachmentsFor('sample', sample.id) : [];
+  openModal(`
+    <h3>${isEdit?'تعديل عينة':'عينة جديدة'}</h3>
+    <div class="row">
+      <div class="field"><label>اسم الصنف</label><input id="sm-item_name" value="${sample?.item_name||''}"></div>
+      <div class="field"><label>المورد</label><select id="sm-supplier_id"><option value="">—</option>${supplierOptions(sample?.supplier_id)}</select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>الفئة</label><input id="sm-category" value="${sample?.category||''}" placeholder="مثال: عود، بخور، عبوات"></div>
+      <div class="field"><label>مرتبط بأمر شراء (اختياري)</label><select id="sm-related_po_id"><option value="">—</option>${orderOptions(sample?.related_po_id)}</select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>الكمية</label><input type="number" step="0.01" id="sm-quantity" value="${sample?.quantity||''}"></div>
+      <div class="field"><label>الوحدة</label><input id="sm-unit" value="${sample?.unit||''}" placeholder="مثال: جرام، قطعة"></div>
+    </div>
+    <div class="field"><label>تاريخ الاستلام</label><input type="date" id="sm-received_date" value="${sample?.received_date||today}"></div>
+    <div class="field"><label>الحالة</label><select id="sm-status">${['قيد التقييم','مقبول','مرفوض','بانتظار قرار'].map(s=>`<option value="${s}" ${sample?.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="field"><label>ملاحظات القرار</label><textarea id="sm-decision_notes" placeholder="سبب القبول/الرفض، ملاحظات فريق تطوير المنتجات">${sample?.decision_notes||''}</textarea></div>
+    <div class="field"><label>ملاحظات عامة</label><textarea id="sm-notes">${sample?.notes||''}</textarea></div>
+
+    ${isEdit ? renderAttachmentsBlock('sample', sample.id, attachments) : ''}
+
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="save-sample">حفظ</button>
+      <button class="btn" id="cancel-sample">إغلاق</button>
+      ${isEdit && canDelete() ? `<button class="btn danger" id="del-sample">حذف</button>` : ''}
+    </div>
+  `, (root)=>{
+    root.querySelector('#cancel-sample').onclick = closeModal;
+    root.querySelector('#save-sample').onclick = async () => {
+      const payload = {
+        item_name: val('sm-item_name'), supplier_id: val('sm-supplier_id')||null,
+        category: val('sm-category')||null, related_po_id: val('sm-related_po_id')||null,
+        quantity: parseFloat(val('sm-quantity'))||null, unit: val('sm-unit')||null,
+        received_date: val('sm-received_date')||null, status: val('sm-status'),
+        decision_notes: val('sm-decision_notes')||null, notes: val('sm-notes')||null,
+      };
+      try {
+        if (isEdit) {
+          const { error } = await sb.from('erp_samples').update(payload).eq('id', sample.id);
+          if (error) throw error;
+        } else {
+          payload.created_by = currentUser.id;
+          const { error } = await sb.from('erp_samples').insert(payload);
+          if (error) throw error;
+        }
+        toast('تم الحفظ'); closeModal(); await refreshAll(); renderActiveTab();
+      } catch(e){ toast('خطأ: '+e.message); }
+    };
+    if (isEdit && canDelete()) root.querySelector('#del-sample').onclick = async () => {
+      if (!confirm('حذف هذه العينة؟')) return;
+      const { error } = await sb.from('erp_samples').delete().eq('id', sample.id);
+      if (error) { toast('خطأ: '+error.message); return; }
+      toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
+    };
+    if (isEdit) wireAttachmentsBlock(root, 'sample', sample.id, () => openSampleModal(cache.samples.find(s=>s.id===sample.id)));
+  });
+}
+
+// ============================================================
+// WAREHOUSE RECEIVING — استلام المستودع (تأكيد الوصول والكميات الفعلية)
+// ============================================================
+function renderWarehouseReceipts(root){
+  const canAdd = canWrite();
+  root.innerHTML = `
+    <div class="card">
+      <div class="toolbar">
+        <strong>استلام المستودع (${cache.warehouseReceipts.length})</strong>
+        <div class="row" style="flex:0;gap:8px">
+          <button class="btn small" id="exp-wh">تصدير إكسل</button>
+          ${canAdd ? '<button class="btn primary small" id="add-wh">+ استلام جديد</button>' : ''}
+        </div>
+      </div>
+      <div style="overflow:auto;max-height:60vh">
+      <table>
+        <thead><tr><th>الأمر</th><th>المورد</th><th>الحاوية</th><th>موقع المستودع</th><th>تاريخ الاستلام</th><th>استلم بواسطة</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+          ${cache.warehouseReceipts.map(r=>{
+            const po = cache.orders.find(o=>o.id===r.po_id);
+            const ship = cache.shipments.find(s=>s.id===r.shipment_id);
+            return `<tr>
+              <td>${po?po.po_number||'—':'—'}</td>
+              <td>${po?supplierName(po.supplier_id):'—'}</td>
+              <td>${ship?.container_number||'—'}</td>
+              <td>${r.warehouse_location||'—'}</td>
+              <td>${fmtDate(r.received_date)}</td>
+              <td>${r.received_by_name||'—'}</td>
+              <td>${r.status||'—'}</td>
+              <td>${canAdd?`<button class="btn small" data-id="${r.id}" data-act="edit-wh">تعديل</button>`:''}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  `;
+  root.querySelector('#exp-wh').onclick = () => exportToExcel(cache.warehouseReceipts.map(r=>{
+    const po = cache.orders.find(o=>o.id===r.po_id);
+    return { رقم_الأمر: po?.po_number, المورد: po?supplierName(po.supplier_id):'', موقع_المستودع: r.warehouse_location,
+      تاريخ_الاستلام: r.received_date, استلم_بواسطة: r.received_by_name, الحالة: r.status, ملاحظات: r.notes };
+  }), 'warehouse_receipts');
+  if (canAdd) root.querySelector('#add-wh').onclick = () => openWarehouseReceiptModal(null);
+  root.querySelectorAll('[data-act="edit-wh"]').forEach(b=>{
+    b.onclick = () => openWarehouseReceiptModal(cache.warehouseReceipts.find(r=>r.id===b.dataset.id));
+  });
+}
+
+function renderReceiptLinesBlock(receipt){
+  const lines = receiptLinesFor(receipt.id);
+  return `
+    <div class="card" style="margin-top:10px">
+      <div class="toolbar"><strong>بنود الاستلام (الكميات الفعلية)</strong>${canWrite()?'<button class="btn small" id="add-receipt-line">+ بند استلام</button>':''}</div>
+      <table>
+        <thead><tr><th>الصنف</th><th>الكمية المطلوبة</th><th>الكمية المستلمة فعليًا</th><th>الفرق</th><th>ملاحظات</th><th></th></tr></thead>
+        <tbody id="receipt-lines-body">
+        ${lines.map(l=>{
+          const diff = (l.received_quantity||0) - (l.ordered_quantity||0);
+          const diffBadge = diff===0 ? '<span class="badge ok">مطابق</span>' : `<span class="badge ${diff<0?'bad':'warn'}">${diff>0?'+':''}${fmtNum(diff)}</span>`;
+          return `<tr>
+            <td>${l.item_name}</td><td>${l.ordered_quantity!=null?fmtNum(l.ordered_quantity):'—'}</td>
+            <td>${fmtNum(l.received_quantity)}</td>
+            <td>${diffBadge}</td>
+            <td>${l.discrepancy_notes||'—'}</td>
+            <td>${canWrite()?`<button class="btn small" data-lid="${l.id}" data-act="del-receipt-line">حذف</button>`:''}</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function wireReceiptLinesBlock(root, receipt){
+  const addBtn = root.querySelector('#add-receipt-line');
+  if (addBtn) addBtn.onclick = () => {
+    const poLines = receipt.po_id ? linesFor(receipt.po_id) : [];
+    openModal(`
+      <h3>بند استلام جديد</h3>
+      ${poLines.length ? `<div class="field"><label>اختر من بنود الأمر (اختياري)</label><select id="rl-po_line_item_id"><option value="">— إدخال يدوي —</option>${poLines.map(l=>`<option value="${l.id}">${l.item_name} (المطلوب: ${fmtNum(l.quantity)})</option>`).join('')}</select></div>` : ''}
+      <div class="field"><label>اسم الصنف</label><input id="rl-item_name"></div>
+      <div class="row">
+        <div class="field"><label>الكمية المطلوبة (حسب الأمر)</label><input type="number" step="0.01" id="rl-ordered_quantity"></div>
+        <div class="field"><label>الكمية المستلمة فعليًا</label><input type="number" step="0.01" id="rl-received_quantity"></div>
+      </div>
+      <div class="field"><label>الوحدة</label><input id="rl-unit"></div>
+      <div class="field"><label>ملاحظات الفرق (إن وجد)</label><textarea id="rl-discrepancy_notes" placeholder="مثال: تلف في الشحن، نقص من المورد..."></textarea></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="save-receipt-line">حفظ</button>
+        <button class="btn" id="back-receipt-line">رجوع</button>
+      </div>
+    `, (r2)=>{
+      const sel = r2.querySelector('#rl-po_line_item_id');
+      if (sel) sel.addEventListener('change', () => {
+        const line = poLines.find(l=>l.id===sel.value);
+        if (line) {
+          r2.querySelector('#rl-item_name').value = line.item_name;
+          r2.querySelector('#rl-ordered_quantity').value = line.quantity;
+        }
+      });
+      r2.querySelector('#back-receipt-line').onclick = () => openWarehouseReceiptModal(receipt);
+      r2.querySelector('#save-receipt-line').onclick = async () => {
+        const payload = {
+          receipt_id: receipt.id,
+          po_line_item_id: sel ? (sel.value || null) : null,
+          item_name: val('rl-item_name'),
+          ordered_quantity: parseFloat(val('rl-ordered_quantity'))||null,
+          received_quantity: parseFloat(val('rl-received_quantity'))||0,
+          unit: val('rl-unit')||null,
+          discrepancy_notes: val('rl-discrepancy_notes')||null,
+          created_by: currentUser.id,
+        };
+        const { error } = await sb.from('erp_warehouse_receipt_lines').insert(payload);
+        if (error) { toast('خطأ: '+error.message); return; }
+        await refreshAll();
+        openWarehouseReceiptModal(cache.warehouseReceipts.find(r=>r.id===receipt.id));
+      };
+    });
+  };
+  root.querySelectorAll('[data-act="del-receipt-line"]').forEach(b=>{
+    b.onclick = async () => {
+      if (!confirm('حذف هذا البند؟')) return;
+      const { error } = await sb.from('erp_warehouse_receipt_lines').delete().eq('id', b.dataset.lid);
+      if (error) { toast('خطأ: '+error.message); return; }
+      await refreshAll();
+      openWarehouseReceiptModal(cache.warehouseReceipts.find(r=>r.id===receipt.id));
+    };
+  });
+}
+
+function openWarehouseReceiptModal(receipt){
+  const isEdit = !!receipt;
+  const attachments = isEdit ? attachmentsFor('receipt', receipt.id) : [];
+  openModal(`
+    <h3>${isEdit?'تعديل استلام مستودع':'استلام مستودع جديد'}</h3>
+    <div class="row">
+      <div class="field"><label>أمر الشراء</label><select id="wh-po_id"><option value="">—</option>${orderOptions(receipt?.po_id)}</select></div>
+      <div class="field"><label>الشحنة (اختياري)</label><select id="wh-shipment_id"><option value="">—</option>${cache.shipments.map(s=>`<option value="${s.id}" ${receipt?.shipment_id===s.id?'selected':''}>${s.container_number||'بدون رقم حاوية'}</option>`).join('')}</select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>موقع المستودع</label><input id="wh-warehouse_location" list="wh-locations" value="${receipt?.warehouse_location||''}" placeholder="مثال: المستودع الرئيسي، مستودع خمرة">
+        <datalist id="wh-locations"><option value="المستودع الرئيسي"><option value="مستودع خمرة"></datalist>
+      </div>
+      <div class="field"><label>تاريخ الاستلام</label><input type="date" id="wh-received_date" value="${receipt?.received_date||today}"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>استلم بواسطة</label><input id="wh-received_by_name" value="${receipt?.received_by_name||''}" placeholder="اسم مسؤول المستودع"></div>
+      <div class="field"><label>الحالة</label><select id="wh-status">${['مستلم جزئياً','مستلم بالكامل','به فروقات'].map(s=>`<option value="${s}" ${receipt?.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>ملاحظات</label><textarea id="wh-notes">${receipt?.notes||''}</textarea></div>
+
+    ${isEdit ? renderReceiptLinesBlock(receipt) : '<p class="muted" style="margin-top:8px">يمكن إضافة بنود الاستلام وتسجيل الكميات الفعلية بعد الحفظ.</p>'}
+    ${isEdit ? renderAttachmentsBlock('receipt', receipt.id, attachments) : ''}
+
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="save-wh">حفظ</button>
+      <button class="btn" id="cancel-wh">إغلاق</button>
+      ${isEdit && canDelete() ? `<button class="btn danger" id="del-wh">حذف</button>` : ''}
+    </div>
+  `, (root)=>{
+    root.querySelector('#cancel-wh').onclick = closeModal;
+    root.querySelector('#save-wh').onclick = async () => {
+      const payload = {
+        po_id: val('wh-po_id')||null, shipment_id: val('wh-shipment_id')||null,
+        warehouse_location: val('wh-warehouse_location')||null,
+        received_date: val('wh-received_date')||null,
+        received_by_name: val('wh-received_by_name')||null,
+        status: val('wh-status'), notes: val('wh-notes')||null,
+      };
+      try {
+        if (isEdit) {
+          const { error } = await sb.from('erp_warehouse_receipts').update(payload).eq('id', receipt.id);
+          if (error) throw error;
+        } else {
+          payload.created_by = currentUser.id;
+          const { error } = await sb.from('erp_warehouse_receipts').insert(payload);
+          if (error) throw error;
+        }
+        toast('تم الحفظ'); closeModal(); await refreshAll(); renderActiveTab();
+      } catch(e){ toast('خطأ: '+e.message); }
+    };
+    if (isEdit && canDelete()) root.querySelector('#del-wh').onclick = async () => {
+      if (!confirm('حذف استلام المستودع وكل بنوده؟')) return;
+      const { error } = await sb.from('erp_warehouse_receipts').delete().eq('id', receipt.id);
+      if (error) { toast('خطأ: '+error.message); return; }
+      toast('تم الحذف'); closeModal(); await refreshAll(); renderActiveTab();
+    };
+    if (isEdit) {
+      wireReceiptLinesBlock(root, receipt);
+      wireAttachmentsBlock(root, 'receipt', receipt.id, () => openWarehouseReceiptModal(cache.warehouseReceipts.find(r=>r.id===receipt.id)));
+    }
   });
 }
 
@@ -1643,7 +1979,8 @@ function renderComparison(root){
 const TABLE_LABELS = {
   erp_suppliers:'الموردون', erp_purchase_orders:'أوامر الشراء', erp_po_line_items:'بنود الأوامر',
   erp_payments:'الدفعات', erp_shipments:'الشحنات', erp_season_plan:'خطة الموسم',
-  erp_attachments:'المرفقات',
+  erp_attachments:'المرفقات', erp_samples:'العينات',
+  erp_warehouse_receipts:'استلام المستودع', erp_warehouse_receipt_lines:'بنود استلام المستودع',
 };
 function renderAudit(root){
   root.innerHTML = `
