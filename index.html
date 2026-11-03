@@ -940,7 +940,7 @@ function openOrderModal(order){
       <p class="muted" style="margin-top:6px">أضف كل أصناف هذا الأمر هنا (زجاج، غطاء، مضخة...) بدل إنشاء أمر شراء منفصل لكل صنف.</p>
     </div>`}
 
-    ${isEdit ? renderAttachmentsBlock('po', order.id, attachments) : ''}
+    ${isEdit ? renderAttachmentsBlock('po', order.id, attachments) : '<p class="muted" style="margin-top:8px">📎 يمكن إرفاق الملفات بعد حفظ الأمر (اضغط "تعديل" على السجل بعد الحفظ).</p>'}
 
     <div class="row" style="margin-top:14px">
       ${editable ? `<button class="btn primary" id="save-order">حفظ</button>` : ''}
@@ -1358,7 +1358,7 @@ function openPaymentModal(payment){
     </div>
     <div class="field"><label>الحالة</label><select id="p-status">${['مستحقة','مطلوبة','مُعتمدة','مُحوَّلة'].map(s=>`<option ${payment?.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
     <div class="field"><label>المرجع</label><input id="p-reference" value="${payment?.reference||''}"></div>
-    ${isEdit ? renderAttachmentsBlock('payment', payment.id, attachments) : ''}
+    ${isEdit ? renderAttachmentsBlock('payment', payment.id, attachments) : '<p class="muted" style="margin-top:8px">📎 يمكن إرفاق الملفات بعد حفظ الدفعة (اضغط "تعديل" على السجل بعد الحفظ).</p>'}
     <div class="row" style="margin-top:14px">
       <button class="btn primary" id="save-pay">حفظ</button>
       <button class="btn" id="cancel-pay">إغلاق</button>
@@ -1490,7 +1490,7 @@ function openShipmentModal(ship){
     <div class="field"><label>الحالة</label><input id="s-status" value="${ship?.status||''}"></div>
     <div class="field"><label>ملاحظات</label><textarea id="s-notes">${ship?.notes||''}</textarea></div>
     ${isEdit && ship?.updated_by ? `<p class="muted">آخر تحديث بواسطة: ${userLabel(ship.updated_by)}</p>` : ''}
-    ${isEdit ? renderAttachmentsBlock('shipment', ship.id, attachments) : ''}
+    ${isEdit ? renderAttachmentsBlock('shipment', ship.id, attachments) : '<p class="muted" style="margin-top:8px">📎 يمكن إرفاق الملفات بعد حفظ الشحنة (اضغط "تعديل" على السجل بعد الحفظ).</p>'}
     <div class="row" style="margin-top:14px">
       ${editable ? '<button class="btn primary" id="save-ship">حفظ</button>' : ''}
       <button class="btn" id="cancel-ship">إغلاق</button>
@@ -1602,7 +1602,7 @@ function openSeasonModal(item){
     <p class="muted">موعد الالتزام التقديري: <strong id="sp-preview">—</strong></p>
     <div class="field"><label>مرتبط بأمر شراء (اختياري)</label><select id="sp-linked_po_id"><option value="">—</option>${orderOptions(item?.linked_po_id)}</select></div>
     <div class="field"><label>الحالة</label><input id="sp-status" value="${item?.status||'مخطط'}"></div>
-    ${isEdit ? renderAttachmentsBlock('season', item.id, attachments) : ''}
+    ${isEdit ? renderAttachmentsBlock('season', item.id, attachments) : '<p class="muted" style="margin-top:8px">📎 يمكن إرفاق الملفات بعد الحفظ (اضغط "تعديل" على السجل بعد الحفظ).</p>'}
     <div class="row" style="margin-top:14px">
       ${editable ? '<button class="btn primary" id="save-season">حفظ</button>' : ''}
       <button class="btn" id="cancel-season">إغلاق</button>
@@ -1704,7 +1704,7 @@ function openSupplierModal(sup){
     <div class="field"><label>شروط الدفع</label><input id="su-payment_terms" value="${sup?.payment_terms||''}"></div>
     <div class="field"><label><input type="checkbox" id="su-is_active" ${sup?.is_active!==false?'checked':''} style="width:auto;display:inline-block;margin-left:6px"> نشط</label></div>
     <div class="field"><label>ملاحظات</label><textarea id="su-notes">${sup?.notes||''}</textarea></div>
-    ${isEdit ? renderAttachmentsBlock('supplier', sup.id, attachments) : ''}
+    ${isEdit ? renderAttachmentsBlock('supplier', sup.id, attachments) : '<p class="muted" style="margin-top:8px">📎 يمكن إرفاق الملفات بعد حفظ المورد (اضغط "تعديل" على السجل بعد الحفظ).</p>'}
     <div class="row" style="margin-top:14px">
       ${editable ? '<button class="btn primary" id="save-sup">حفظ</button>' : ''}
       <button class="btn" id="cancel-sup">إغلاق</button>
@@ -1809,7 +1809,7 @@ function openSampleModal(sample){
     <div class="field"><label>ملاحظات القرار</label><textarea id="sm-decision_notes" placeholder="سبب القبول/الرفض، ملاحظات فريق تطوير المنتجات">${sample?.decision_notes||''}</textarea></div>
     <div class="field"><label>ملاحظات عامة</label><textarea id="sm-notes">${sample?.notes||''}</textarea></div>
 
-    ${isEdit ? renderAttachmentsBlock('sample', sample.id, attachments) : ''}
+    ${isEdit ? renderAttachmentsBlock('sample', sample.id, attachments) : '<p class="muted" style="margin-top:8px">📎 يمكن إرفاق صور العينة بعد الحفظ (اضغط "تعديل" على السجل بعد الحفظ).</p>'}
 
     <div class="row" style="margin-top:14px">
       ${editable ? '<button class="btn primary" id="save-sample">حفظ</button>' : ''}
@@ -2004,7 +2004,7 @@ function openWarehouseReceiptModal(receipt){
     <div class="field"><label>ملاحظات</label><textarea id="wh-notes">${receipt?.notes||''}</textarea></div>
 
     ${isEdit ? renderReceiptLinesBlock(receipt) : '<p class="muted" style="margin-top:8px">يمكن إضافة بنود الاستلام وتسجيل الكميات الفعلية بعد الحفظ.</p>'}
-    ${isEdit ? renderAttachmentsBlock('receipt', receipt.id, attachments) : ''}
+    ${isEdit ? renderAttachmentsBlock('receipt', receipt.id, attachments) : '<p class="muted" style="margin-top:8px">📎 يمكن إرفاق صور حالة البضاعة بعد حفظ الاستلام (اضغط "تعديل" على السجل بعد الحفظ).</p>'}
 
     <div class="row" style="margin-top:14px">
       ${editable ? '<button class="btn primary" id="save-wh">حفظ</button>' : ''}
