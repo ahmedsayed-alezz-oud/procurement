@@ -196,6 +196,8 @@ let currentProfile = null;
 let activeTab = 'dashboard';
 let cache = { suppliers:[], orders:[], lines:[], payments:[], shipments:[], season:[], profiles:[], audit:[], attachments:[], samples:[], warehouseReceipts:[], warehouseReceiptLines:[] };
 let chartInstances = {};
+let selectedOrderIds = new Set();
+let dashFilter = { from:'', to:'', supplier:'', category:'' };
 
 // ============================================================
 // UTILITIES
@@ -346,6 +348,7 @@ function renderTabs(){
 
 function canWrite(){ return ['manager','data_entry'].includes(currentProfile.role); }
 function canDelete(){ return currentProfile.role === 'manager'; }
+function canFullAccess(){ return currentProfile.is_full_access === true; }
 function ownsRow(row){ return row.created_by === currentUser.id || currentProfile.role === 'manager'; }
 
 function renderActiveTab(){
@@ -374,20 +377,45 @@ function renderActiveTab(){
 // ============================================================
 // DASHBOARD — Enhanced KPIs + Charts
 // ============================================================
+function dashboardCategories(){
+  return [...new Set(cache.lines.map(l=>l.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+}
+
 function renderDashboard(root){
-  const totalOrders = cache.orders.length;
-  const openOrders = cache.orders.filter(o=>o.status!=='مُستلم' && o.status!=='مُلغى').length;
+  // ---- Apply dashboard filters (date range / supplier / category) ----
+  const fOrders = cache.orders.filter(o=>{
+    if (dashFilter.from && (!o.order_date || o.order_date < dashFilter.from)) return false;
+    if (dashFilter.to && (!o.order_date || o.order_date > dashFilter.to)) return false;
+    if (dashFilter.supplier && o.supplier_id !== dashFilter.supplier) return false;
+    return true;
+  });
+  const fOrderIds = new Set(fOrders.map(o=>o.id));
+  const fLines = cache.lines.filter(l=> fOrderIds.has(l.po_id) && (!dashFilter.category || l.category === dashFilter.category));
+  // When a category filter is active, keep only orders that actually have a matching line
+  const scopedOrders = dashFilter.category ? fOrders.filter(o=> fLines.some(l=>l.po_id===o.id)) : fOrders;
+  const scopedOrderIds = new Set(scopedOrders.map(o=>o.id));
+  const fPayments = cache.payments.filter(p=>{
+    if (dashFilter.supplier && p.supplier_id && p.supplier_id !== dashFilter.supplier) return false;
+    if (p.po_id) return scopedOrderIds.has(p.po_id);
+    return !dashFilter.category; // payments with no linked PO have no category to match
+  });
+  const fShipments = cache.shipments.filter(s=> s.po_id ? scopedOrderIds.has(s.po_id) : true);
+  const dashLinesFor = (poId) => fLines.filter(l=>l.po_id===poId);
+  const hasFilter = !!(dashFilter.from || dashFilter.to || dashFilter.supplier || dashFilter.category);
+
+  const totalOrders = scopedOrders.length;
+  const openOrders = scopedOrders.filter(o=>o.status!=='مُستلم' && o.status!=='مُلغى').length;
 
   // Data completeness
   const reqFields = ['po_number','supplier_id','order_date','currency','status'];
   let filled = 0, total = 0;
-  cache.orders.forEach(o=>{ reqFields.forEach(f=>{ total++; if(o[f]) filled++; }); });
+  scopedOrders.forEach(o=>{ reqFields.forEach(f=>{ total++; if(o[f]) filled++; }); });
   const completeness = total ? Math.round(filled/total*100) : 0;
 
   // Spend by supplier
   const spendBySupplier = {};
-  cache.orders.forEach(o=>{
-    const lines = linesFor(o.id);
+  scopedOrders.forEach(o=>{
+    const lines = dashLinesFor(o.id);
     const spend = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
     const name = supplierName(o.supplier_id);
     spendBySupplier[name] = (spendBySupplier[name]||0) + spend;
@@ -401,8 +429,8 @@ function renderDashboard(root){
 
   // Spend by currency
   const spendByCurrency = {};
-  cache.orders.forEach(o=>{
-    const lines = linesFor(o.id);
+  scopedOrders.forEach(o=>{
+    const lines = dashLinesFor(o.id);
     const spend = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
     const cur = o.currency || 'غير محدد';
     spendByCurrency[cur] = (spendByCurrency[cur]||0) + spend;
@@ -410,42 +438,42 @@ function renderDashboard(root){
 
   // Payment status
   const payStatusCounts = {مستحقة:0, مطلوبة:0, مُعتمدة:0, 'مُحوَّلة':0};
-  cache.payments.forEach(p=>{ if(payStatusCounts[p.status]!==undefined) payStatusCounts[p.status]++; });
+  fPayments.forEach(p=>{ if(payStatusCounts[p.status]!==undefined) payStatusCounts[p.status]++; });
 
   // Overdue payments
   const today = new Date().toISOString().slice(0,10);
-  const overdue = cache.payments.filter(p=>p.due_date && p.due_date < today && p.status!=='مُحوَّلة');
+  const overdue = fPayments.filter(p=>p.due_date && p.due_date < today && p.status!=='مُحوَّلة');
 
-  // Season adherence
+  // Season adherence (not scoped by order/category filters — plan-level indicator)
   const linkedSeason = cache.season.filter(s=>s.linked_po_id);
   const seasonAdherence = cache.season.length ? Math.round(linkedSeason.length/cache.season.length*100) : 0;
 
   // Nama soft upload rate
-  const namaUploaded = cache.orders.filter(o=>o.nama_uploaded).length;
+  const namaUploaded = scopedOrders.filter(o=>o.nama_uploaded).length;
   const namaRate = totalOrders ? Math.round(namaUploaded/totalOrders*100) : 0;
 
   // Data quality issues
-  const noDate = cache.orders.filter(o=>!o.order_date).length;
-  const noPrice = cache.lines.filter(l=>!l.unit_price && !l.line_total).length;
+  const noDate = scopedOrders.filter(o=>!o.order_date).length;
+  const noPrice = fLines.filter(l=>!l.unit_price && !l.line_total).length;
 
   // Order types
-  const domestic = cache.orders.filter(o=>o.order_type==='محلي').length;
-  const international = cache.orders.filter(o=>o.order_type==='دولي').length;
+  const domestic = scopedOrders.filter(o=>o.order_type==='محلي').length;
+  const international = scopedOrders.filter(o=>o.order_type==='دولي').length;
 
   // Active shipments
-  const activeShipments = cache.shipments.filter(s=>s.status!=='مُستلم').length;
+  const activeShipments = fShipments.filter(s=>s.status!=='مُستلم').length;
 
   // Closed orders + active suppliers + avg order value (SAR)
-  const closedOrders = cache.orders.filter(o=>o.status==='مُستلم').length;
+  const closedOrders = scopedOrders.filter(o=>o.status==='مُستلم').length;
   const activeSuppliersCount = cache.suppliers.filter(s=>s.is_active!==false).length;
-  const ordersWithSar = cache.orders.filter(o=>o.total_sar);
+  const ordersWithSar = scopedOrders.filter(o=>o.total_sar);
   const totalSarAll = ordersWithSar.reduce((s,o)=>s+Number(o.total_sar||0),0);
   const avgOrderValueSar = ordersWithSar.length ? totalSarAll/ordersWithSar.length : 0;
 
   // PO age (days) — open orders only
   const msDay = 1000*60*60*24;
   const nowMs = Date.now();
-  const openAges = cache.orders
+  const openAges = scopedOrders
     .filter(o=>o.status!=='مُستلم' && o.status!=='مُلغى' && o.order_date)
     .map(o=>Math.floor((nowMs - new Date(o.order_date).getTime())/msDay));
   const avgOpenAge = openAges.length ? Math.round(openAges.reduce((a,b)=>a+b,0)/openAges.length) : 0;
@@ -453,13 +481,31 @@ function renderDashboard(root){
 
   // Commitments & outstanding payments by currency (cannot sum across currencies without a conversion rate per payment — shown as a breakdown, not invented as one figure)
   const commitByCur = {}, outstandingByCur = {};
-  cache.payments.forEach(p=>{
+  fPayments.forEach(p=>{
     const cur = p.currency || 'غير محدد';
     commitByCur[cur] = (commitByCur[cur]||0) + Number(p.amount||0);
     if (p.status !== 'مُحوَّلة') outstandingByCur[cur] = (outstandingByCur[cur]||0) + Number(p.amount||0);
   });
 
   root.innerHTML = `
+    <!-- Filters -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="toolbar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+        <div class="row" style="flex:1;flex-wrap:wrap;gap:10px">
+          <div class="field" style="margin:0;min-width:140px"><label>من تاريخ</label><input type="date" id="dash-from" value="${dashFilter.from}"></div>
+          <div class="field" style="margin:0;min-width:140px"><label>إلى تاريخ</label><input type="date" id="dash-to" value="${dashFilter.to}"></div>
+          <div class="field" style="margin:0;min-width:180px"><label>المورد</label>
+            <select id="dash-supplier"><option value="">كل الموردين</option>${supplierOptions(dashFilter.supplier)}</select>
+          </div>
+          <div class="field" style="margin:0;min-width:160px"><label>الصنف</label>
+            <select id="dash-category"><option value="">كل الأصناف</option>${dashboardCategories().map(c=>`<option value="${c}" ${dashFilter.category===c?'selected':''}>${c}</option>`).join('')}</select>
+          </div>
+        </div>
+        <button class="btn small" id="dash-clear-filter" ${hasFilter?'':'disabled'}>مسح الفلاتر</button>
+      </div>
+      ${hasFilter ? `<p class="muted" style="margin-top:8px">📍 عرض مُفلتر — ${totalOrders} من ${cache.orders.length} أمر شراء. كل المؤشرات والرسوم أدناه محسوبة على النطاق المُفلتر.</p>` : ''}
+    </div>
+
     <!-- KPI Cards -->
     <div class="kpi-grid">
       <div class="kpi-card blue">
@@ -490,7 +536,7 @@ function renderDashboard(root){
         <div class="kpi-icon">💸</div>
         <div class="kpi-value">${overdue.length}</div>
         <div class="kpi-label">دفعات متأخرة</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${cache.payments.length?Math.round(overdue.length/cache.payments.length*100):0}%"></div></div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${fPayments.length?Math.round(overdue.length/fPayments.length*100):0}%"></div></div>
       </div>
       <div class="kpi-card ${seasonAdherence>=70?'green':seasonAdherence>=40?'amber':'red'}">
         <div class="kpi-icon">📅</div>
@@ -508,7 +554,7 @@ function renderDashboard(root){
         <div class="kpi-icon">🚢</div>
         <div class="kpi-value">${activeShipments}</div>
         <div class="kpi-label">شحنات نشطة</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${cache.shipments.length?Math.round(activeShipments/cache.shipments.length*100):0}%"></div></div>
+        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${fShipments.length?Math.round(activeShipments/fShipments.length*100):0}%"></div></div>
       </div>
       <div class="kpi-card green">
         <div class="kpi-icon">✔️</div>
@@ -568,7 +614,7 @@ function renderDashboard(root){
       <strong style="color:var(--warn)">⚠️ تنبيهات جودة البيانات</strong>
       <div style="margin-top:6px;font-size:13px;color:var(--text)">
         ${noDate > 0 ? `<div>• ${noDate} أمر شراء بدون تاريخ (${Math.round(noDate/totalOrders*100)}%)</div>` : ''}
-        ${noPrice > 0 ? `<div>• ${noPrice} بند بدون سعر (${Math.round(noPrice/cache.lines.length*100)}%)</div>` : ''}
+        ${noPrice > 0 ? `<div>• ${noPrice} بند بدون سعر (${fLines.length?Math.round(noPrice/fLines.length*100):0}%)</div>` : ''}
       </div>
     </div>` : ''}
 
@@ -594,6 +640,16 @@ function renderDashboard(root){
 
     <p class="muted" style="margin-top:14px">المؤشرات محسوبة مباشرة من السجل الحالي (محسوب) — تُحدَّث لحظيًا. HHI = ${Math.round(hhi)}</p>
   `;
+
+  // Filter controls
+  root.querySelector('#dash-from').onchange = (e) => { dashFilter.from = e.target.value; renderDashboard(root); };
+  root.querySelector('#dash-to').onchange = (e) => { dashFilter.to = e.target.value; renderDashboard(root); };
+  root.querySelector('#dash-supplier').onchange = (e) => { dashFilter.supplier = e.target.value; renderDashboard(root); };
+  root.querySelector('#dash-category').onchange = (e) => { dashFilter.category = e.target.value; renderDashboard(root); };
+  root.querySelector('#dash-clear-filter').onclick = () => {
+    dashFilter = { from:'', to:'', supplier:'', category:'' };
+    renderDashboard(root);
+  };
 
   // Render charts after DOM is ready
   setTimeout(()=>{
@@ -708,6 +764,11 @@ function orderOptions(selected){
 // ============================================================
 function renderOrders(root){
   const canAdd = canWrite();
+  const fullAccess = canFullAccess();
+  // Drop any stale selections (orders no longer in the current list)
+  const liveIds = new Set(cache.orders.map(o=>o.id));
+  [...selectedOrderIds].forEach(id=>{ if(!liveIds.has(id)) selectedOrderIds.delete(id); });
+
   root.innerHTML = `
     <div class="card">
       <div class="toolbar">
@@ -717,9 +778,18 @@ function renderOrders(root){
           ${canAdd ? '<button class="btn primary small" id="add-order">+ أمر جديد</button>' : ''}
         </div>
       </div>
+      ${fullAccess ? `
+      <div class="toolbar" id="bulk-toolbar" style="background:var(--warn-light);border:1px solid var(--warn);border-radius:8px;padding:8px 12px;margin-top:8px">
+        <span style="font-size:13px">🔐 صلاحية Full Access — <strong id="bulk-count">${selectedOrderIds.size}</strong> محدد من ${cache.orders.length}</span>
+        <div class="row" style="flex:0;gap:8px">
+          <button class="btn small danger" id="bulk-del-selected" ${selectedOrderIds.size?'':'disabled'}>حذف المحدد</button>
+          <button class="btn small danger" id="bulk-del-all">حذف الكل (${cache.orders.length})</button>
+        </div>
+      </div>` : ''}
       <div style="overflow:auto;max-height:60vh">
       <table>
         <thead><tr>
+          ${fullAccess ? `<th><input type="checkbox" id="select-all-orders" ${cache.orders.length && selectedOrderIds.size===cache.orders.length?'checked':''}></th>` : ''}
           <th>رقم الأمر</th><th>المورد</th><th>النوع</th><th>العملة</th><th>سعر الصرف</th><th>الإجمالي (ر.س)</th>
           <th>الحالة</th><th>نما سوفت</th><th>تاريخ الأمر</th><th>بنود</th><th></th>
         </tr></thead>
@@ -729,6 +799,7 @@ function renderOrders(root){
             const lineTotal = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
             const sarTotal = o.total_sar || (o.exchange_rate_to_sar ? lineTotal * o.exchange_rate_to_sar : null);
             return `<tr>
+              ${fullAccess ? `<td><input type="checkbox" class="order-check" data-id="${o.id}" ${selectedOrderIds.has(o.id)?'checked':''}></td>` : ''}
               <td>${o.po_number || '—'}</td>
               <td>${supplierName(o.supplier_id)}</td>
               <td>${o.order_type||'—'}</td>
@@ -760,6 +831,44 @@ function renderOrders(root){
   root.querySelectorAll('[data-act="edit-order"]').forEach(b=>{
     b.onclick = () => openOrderModal(cache.orders.find(o=>o.id===b.dataset.id));
   });
+
+  if (fullAccess) {
+    const bulkCount = () => root.querySelector('#bulk-count') && (root.querySelector('#bulk-count').textContent = selectedOrderIds.size);
+    const bulkDelBtn = () => root.querySelector('#bulk-del-selected');
+    root.querySelector('#select-all-orders').onchange = (e) => {
+      if (e.target.checked) cache.orders.forEach(o=>selectedOrderIds.add(o.id));
+      else selectedOrderIds.clear();
+      renderOrders(root);
+    };
+    root.querySelectorAll('.order-check').forEach(cb=>{
+      cb.onchange = () => {
+        if (cb.checked) selectedOrderIds.add(cb.dataset.id); else selectedOrderIds.delete(cb.dataset.id);
+        bulkCount();
+        if (bulkDelBtn()) bulkDelBtn().disabled = selectedOrderIds.size === 0;
+        const selAll = root.querySelector('#select-all-orders');
+        if (selAll) selAll.checked = selectedOrderIds.size === cache.orders.length && cache.orders.length > 0;
+      };
+    });
+    root.querySelector('#bulk-del-selected').onclick = async () => {
+      const ids = [...selectedOrderIds];
+      if (!ids.length) return;
+      if (!confirm(`حذف ${ids.length} أمر شراء محدد وكل بنودهم؟ لا يمكن التراجع.`)) return;
+      const { error } = await sb.from('erp_purchase_orders').delete().in('id', ids);
+      if (error) { toast('خطأ: '+error.message); return; }
+      selectedOrderIds.clear();
+      toast(`تم حذف ${ids.length} أمر شراء`); await refreshAll(); renderActiveTab();
+    };
+    root.querySelector('#bulk-del-all').onclick = async () => {
+      const ids = cache.orders.map(o=>o.id);
+      if (!ids.length) return;
+      if (!confirm(`حذف جميع أوامر الشراء (${ids.length}) وكل بنودها؟ هذا إجراء نهائي لا يمكن التراجع عنه.`)) return;
+      if (!confirm('تأكيد أخير: سيتم حذف كل أوامر الشراء المعروضة الآن. متابعة؟')) return;
+      const { error } = await sb.from('erp_purchase_orders').delete().in('id', ids);
+      if (error) { toast('خطأ: '+error.message); return; }
+      selectedOrderIds.clear();
+      toast(`تم حذف ${ids.length} أمر شراء`); await refreshAll(); renderActiveTab();
+    };
+  }
 }
 
 function openOrderModal(order){
@@ -825,7 +934,7 @@ function openOrderModal(order){
     <div class="row" style="margin-top:14px">
       ${editable ? `<button class="btn primary" id="save-order">حفظ</button>` : ''}
       <button class="btn" id="cancel-order">إغلاق</button>
-      ${isEdit && canDelete() ? `<button class="btn danger" id="del-order">حذف</button>` : ''}
+      ${isEdit && canFullAccess() ? `<button class="btn danger" id="del-order">حذف</button>` : ''}
     </div>
   `, (root)=>{
     // Auto-calculate total SAR when exchange rate changes
@@ -894,7 +1003,7 @@ function openOrderModal(order){
         toast('تم الحفظ'); closeModal(); await refreshAll(); renderActiveTab();
       } catch(e){ toast('خطأ: ' + e.message); }
     };
-    if (isEdit && canDelete()) root.querySelector('#del-order').onclick = async () => {
+    if (isEdit && canFullAccess()) root.querySelector('#del-order').onclick = async () => {
       if (!confirm('حذف هذا الأمر وكل بنوده؟')) return;
       const { error } = await sb.from('erp_purchase_orders').delete().eq('id', order.id);
       if (error) { toast('خطأ: '+error.message); return; }
@@ -2027,12 +2136,14 @@ function userLabel(id){ const p = cache.profiles.find(x=>x.id===id); return p ? 
 // USERS (manager only)
 // ============================================================
 function renderUsers(root){
+  const fullAccess = canFullAccess();
   root.innerHTML = `
     <div class="card">
       <strong>المستخدمون (${cache.profiles.length})</strong>
+      ${fullAccess ? '<p class="muted" style="margin-top:6px">صلاحية Full Access تتيح حذف أوامر الشراء (فرديًا أو جماعيًا). امنحها فقط لمن تثق به تمامًا.</p>' : ''}
       <div style="overflow:auto;max-height:65vh;margin-top:10px">
       <table>
-        <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور الحالي</th><th>تغيير الدور</th></tr></thead>
+        <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور الحالي</th><th>تغيير الدور</th><th>Full Access</th></tr></thead>
         <tbody>
           ${cache.profiles.map(p=>`
             <tr>
@@ -2042,6 +2153,11 @@ function renderUsers(root){
                 <select data-id="${p.id}" class="role-select" style="width:auto;display:inline-block">
                   ${['pending','data_entry','manager','finance','viewer'].map(r=>`<option value="${r}" ${p.role===r?'selected':''}>${r}</option>`).join('')}
                 </select>
+              </td>
+              <td>
+                ${fullAccess
+                  ? `<input type="checkbox" class="full-access-check" data-id="${p.id}" ${p.is_full_access?'checked':''}>`
+                  : (p.is_full_access ? '<span class="badge ok">✓</span>' : '<span class="muted">—</span>')}
               </td>
             </tr>`).join('')}
         </tbody>
@@ -2056,6 +2172,17 @@ function renderUsers(root){
       toast('تم تحديث الدور'); await refreshAll(); renderActiveTab();
     };
   });
+  if (fullAccess) {
+    root.querySelectorAll('.full-access-check').forEach(cb=>{
+      cb.onchange = async () => {
+        const grant = cb.checked;
+        if (grant && !confirm('منح صلاحية Full Access (حذف أوامر الشراء فرديًا/جماعيًا) لهذا المستخدم؟')) { cb.checked = false; return; }
+        const { error } = await sb.from('erp_profiles').update({is_full_access: grant}).eq('id', cb.dataset.id);
+        if (error) { toast('خطأ: '+error.message); cb.checked = !grant; return; }
+        toast(grant ? 'تم منح Full Access' : 'تم سحب Full Access'); await refreshAll(); renderActiveTab();
+      };
+    });
+  }
 }
 
 // ============================================================
