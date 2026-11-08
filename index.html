@@ -330,7 +330,7 @@ const TAB_DEFS = [
   {id:'orders', label:'أوامر الشراء', icon:'📋', roles:['manager','data_entry','finance','viewer']},
   {id:'aging', label:'تقادم الأوامر', icon:'⏱️', roles:['manager','data_entry','finance','viewer']},
   {id:'payments', label:'الدفعات', icon:'💰', roles:['manager','data_entry','finance','viewer']},
-  {id:'shipments', label:'الشحنات', icon:'🚢', roles:['manager','data_entry','finance','viewer']},
+  {id:'shipments', label:'الشحنات', icon:'🚢', roles:['manager','data_entry','finance','viewer','warehouse']},
   {id:'season', label:'خطة الموسم', icon:'📅', roles:['manager','data_entry','viewer']},
   {id:'suppliers', label:'الموردون', icon:'🏭', roles:['manager','data_entry','viewer']},
   {id:'samples', label:'العينات', icon:'🧪', roles:['manager','data_entry','viewer']},
@@ -1452,7 +1452,7 @@ function renderShipments(root){
               <td>${s.status||'—'}</td>
               <td>${s.tracking_url ? `<a href="${s.tracking_url}" target="_blank" class="btn small" style="color:var(--primary)">تتبع ↗</a>` : '—'}</td>
               <td>${userLabel(s.updated_by)}</td>
-              <td>${canAdd?`<button class="btn small" data-id="${s.id}" data-act="edit-ship">${canEditExisting()?'تعديل':'عرض'}</button>`:''}</td>
+              <td>${(canAdd||canWarehouse())?`<button class="btn small" data-id="${s.id}" data-act="edit-ship">${canEditExisting()?'تعديل':'عرض'}</button>`:''}</td>
             </tr>`;
           }).join('')}
         </tbody>
