@@ -767,6 +767,365 @@ function orderOptions(selected){
 }
 
 // ============================================================
+// BULK IMPORT (Excel) — أوامر / بنود / شحنات / دفعات دفعة واحدة
+// ============================================================
+// IMPORT-BLOCK-START
+const IMP_PO_STATUS = ['مخطط','مؤكد','قيد الإنتاج','شُحن','وصل','مُستلم','مُلغى'];
+const IMP_PAY_STATUS = ['مستحقة','مطلوبة','مُعتمدة','مُحوَّلة'];
+const IMP_PO_CURRENCY = ['SAR','USD','EUR','CNY'];
+const IMP_PAY_CURRENCY = ['SAR','USD','EUR'];
+const IMP_SHEETS = {
+  orders: { name:'أوامر الشراء', cols:{
+    'رقم أمر الشراء':'po_number','اسم المورد':'supplier','نوع الأمر':'order_type','العملة':'currency','الحالة':'status',
+    'تاريخ الأمر':'order_date','موعد الحاجة':'need_by_date','سعر الصرف للريال':'exchange_rate','رفع على نما':'nama','ملاحظات':'notes' } },
+  lines: { name:'بنود الأمر', cols:{
+    'رقم أمر الشراء':'po_number','اسم الصنف':'item_name','الفئة':'category','الكمية':'quantity','سعر الوحدة':'unit_price','ملاحظات':'notes' } },
+  shipments: { name:'الشحنات', cols:{
+    'رقم أمر الشراء':'po_number','رقم الحاوية':'container_number','شركة الشحن':'shipping_line','تاريخ طلب الحاوية':'container_order_date',
+    'الكمية الإجمالية':'total_quantity','محتويات الحاوية':'container_contents','رابط التتبع':'tracking_url',
+    'تأكيد المورد':'supplier_confirmed_date','انتهاء الإنتاج':'production_done_date','الفحص':'inspection_date','الشحن':'shipped_date',
+    'الوصول المتوقع':'eta_date','الوصول الفعلي':'ata_date','التخليص الجمركي':'customs_cleared_date','الاستلام':'received_date',
+    'الحالة':'status','ملاحظات':'notes' } },
+  payments: { name:'الدفعات', cols:{
+    'رقم أمر الشراء':'po_number','اسم المورد':'supplier','رقم الدفعة':'payment_seq','المبلغ':'amount','العملة':'currency',
+    'تاريخ الاستحقاق':'due_date','الحالة':'status','تاريخ التحويل':'transferred_date','مرجع الدفعة':'reference',
+    'اسم الصنف':'item_name','الفئة':'category','الكمية':'quantity','ملاحظات':'notes' } },
+};
+const IMP_SHIP_DATES = ['container_order_date','supplier_confirmed_date','production_done_date','inspection_date','shipped_date','eta_date','ata_date','customs_cleared_date','received_date'];
+
+// نص موحّد للمطابقة: بدون تشكيل/نجمة/علامة استفهام، مسافات مفردة، أحرف صغيرة
+function impNorm(v){
+  return String(v ?? '').replace(/[ً-ْـ]/g,'').replace(/[*؟?]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+}
+function impText(v){ const s = String(v ?? '').replace(/\s+/g,' ').trim(); return s || null; }
+function impDigits(s){ return String(s).replace(/[٠-٩]/g, d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)); }
+// يرجع {v} أو {err}
+function impNum(v){
+  if (v === null || v === undefined || v === '') return { v:null };
+  if (typeof v === 'number') return isFinite(v) ? { v } : { err:true };
+  const s = impDigits(v).replace(/[,،\s]/g,'').replace('٫','.');
+  if (s === '') return { v:null };
+  return /^-?\d+(\.\d+)?$/.test(s) ? { v:parseFloat(s) } : { err:true };
+}
+function impDate(v){
+  if (v === null || v === undefined || v === '') return { v:null };
+  const pad = n => String(n).padStart(2,'0');
+  const ok = (y,m,d) => {
+    const dt = new Date(Date.UTC(y, m-1, d));
+    return (y>=2000 && y<=2100 && dt.getUTCFullYear()===y && dt.getUTCMonth()===m-1 && dt.getUTCDate()===d) ? { v:`${y}-${pad(m)}-${pad(d)}` } : { err:true };
+  };
+  if (typeof v === 'number') { // رقم تسلسلي من إكسل
+    const p = XLSX.SSF.parse_date_code(v);
+    return p ? ok(p.y, p.m, p.d) : { err:true };
+  }
+  if (v instanceof Date) return isNaN(v) ? { err:true } : ok(v.getFullYear(), v.getMonth()+1, v.getDate());
+  const s = impDigits(v).trim();
+  if (s === '') return { v:null };
+  let m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);
+  if (m) return ok(+m[1], +m[2], +m[3]);
+  m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/); // يوم/شهر/سنة
+  if (m) return ok(+m[3], +m[2], +m[1]);
+  return { err:true };
+}
+function impEnum(v, allowed){
+  const n = impNorm(v);
+  if (!n) return { v:null };
+  const hit = allowed.find(a => impNorm(a) === n);
+  return hit ? { v:hit } : { err:true };
+}
+
+// يحوّل ملف الإكسل إلى صفوف خام لكل شيت: [{_row, field:value...}]
+function impReadWorkbook(wb){
+  const out = {}, problems = [];
+  for (const [key, def] of Object.entries(IMP_SHEETS)) {
+    const sheetName = wb.SheetNames.find(n => impNorm(n) === impNorm(def.name));
+    if (!sheetName) { out[key] = []; problems.push(`الشيت "${def.name}" غير موجود في الملف`); continue; }
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, raw:true, defval:null, blankrows:true });
+    const header = (aoa[0] || []).map(impNorm);
+    const colMap = {};
+    for (const [label, field] of Object.entries(def.cols)) {
+      const idx = header.indexOf(impNorm(label));
+      if (idx === -1) problems.push(`الشيت "${def.name}": العمود "${label}" غير موجود`);
+      else colMap[field] = idx;
+    }
+    out[key] = [];
+    for (let r = 1; r < aoa.length; r++) {
+      const row = aoa[r] || [];
+      const rec = { _row: r + 1 };
+      let any = false;
+      for (const [field, idx] of Object.entries(colMap)) {
+        let cell = row[idx];
+        if (typeof cell === 'string' && cell.trim() === '') cell = null;
+        rec[field] = cell ?? null;
+        if (cell !== null && cell !== undefined) any = true;
+      }
+      if (any) out[key].push(rec);
+    }
+  }
+  return { rows: out, problems };
+}
+
+// يبني خطة الاستيراد (بدون أي كتابة على قاعدة البيانات)
+function impBuildPlan(rows, db){
+  const errors = [], warnings = [];
+  const E = (sheet, row, msg) => errors.push(`${IMP_SHEETS[sheet].name} — صف ${row}: ${msg}`);
+  const W = (sheet, row, msg) => warnings.push(`${IMP_SHEETS[sheet].name} — صف ${row}: ${msg}`);
+  const key = impNorm;
+
+  const supByKey = new Map();
+  db.suppliers.forEach(s => { if (!supByKey.has(key(s.name))) supByKey.set(key(s.name), s); });
+  const poByKey = new Map();
+  db.orders.forEach(o => {
+    if (!o.po_number) return;
+    const k = key(o.po_number);
+    if (poByKey.has(k)) warnings.push(`رقم الأمر "${o.po_number}" مكرر في النظام أكثر من مرة — سيتم الربط بأول سجل منه`);
+    else poByKey.set(k, o);
+  });
+
+  const plan = { newSuppliers: new Map(), orders: [], lines: [], shipments: [], payments: [],
+                 existingPoLinked: new Set(), skippedExisting: 0, skippedDuplicates: 0, skippedExamples: 0, errors, warnings };
+  const needSupplier = (name) => { const k = key(name); if (!supByKey.has(k) && !plan.newSuppliers.has(k)) plan.newSuppliers.set(k, impText(name)); return k; };
+  const newPoByKey = new Map();   // أوامر جديدة سليمة في الملف
+  const warnedTotals = new Set();
+  const badPoKeys = new Set();    // أوامر جديدة بها أخطاء
+  const isExample = (r, checks) => key(r.po_number) === 'po-1070' && checks.every(([f, v]) => key(r[f]) === key(v));
+
+  // ---- أوامر الشراء ----
+  for (const r of rows.orders) {
+    if (isExample(r, [['supplier','مصنع جيانغشي للتغليف']])) { plan.skippedExamples++; W('orders', r._row, 'صف المثال التوضيحي — تم تجاهله'); continue; }
+    const before = errors.length;
+    const poNum = impText(r.po_number);
+    if (!poNum) { E('orders', r._row, 'رقم أمر الشراء مطلوب'); continue; }
+    const k = key(poNum);
+    if (poByKey.has(k)) { plan.skippedExisting++; continue; } // موجود مسبقًا — لا يُعدَّل
+    if (newPoByKey.has(k) || badPoKeys.has(k)) { E('orders', r._row, `رقم الأمر "${poNum}" مكرر داخل الملف`); continue; }
+    if (!impText(r.supplier)) E('orders', r._row, 'اسم المورد مطلوب');
+    const ot = impEnum(r.order_type, ['محلي','دولي']); if (ot.err) E('orders', r._row, `نوع الأمر "${r.order_type}" غير صحيح (محلي/دولي)`);
+    const cur = impEnum(r.currency, IMP_PO_CURRENCY); if (cur.err) E('orders', r._row, `العملة "${r.currency}" غير صحيحة (${IMP_PO_CURRENCY.join('/')})`);
+    const st = impEnum(r.status, IMP_PO_STATUS); if (st.err) E('orders', r._row, `الحالة "${r.status}" غير صحيحة`);
+    const od = impDate(r.order_date); if (od.err) E('orders', r._row, `تاريخ الأمر "${r.order_date}" غير صحيح (YYYY-MM-DD)`);
+    const nd = impDate(r.need_by_date); if (nd.err) E('orders', r._row, `موعد الحاجة "${r.need_by_date}" غير صحيح (YYYY-MM-DD)`);
+    const fx = impNum(r.exchange_rate); if (fx.err || (fx.v !== null && fx.v <= 0)) E('orders', r._row, `سعر الصرف "${r.exchange_rate}" غير صحيح`);
+    const nama = impEnum(r.nama, ['نعم','لا']); if (nama.err) E('orders', r._row, `قيمة "رُفع على نما؟" يجب أن تكون نعم أو لا`);
+    if (errors.length > before) { badPoKeys.add(k); continue; }
+    if (!cur.v) W('orders', r._row, `العملة فارغة للأمر "${poNum}" — سيتم اعتماد SAR`);
+    const o = { _key:k, po_number:poNum, _supKey:needSupplier(r.supplier), order_type:ot.v, currency:cur.v || 'SAR', status:st.v || 'مخطط',
+                order_date:od.v, need_by_date:nd.v, exchange_rate_to_sar:fx.v, nama_uploaded:nama.v === 'نعم', notes:impText(r.notes), _lineTotal:0 };
+    newPoByKey.set(k, o); plan.orders.push(o);
+  }
+
+  // يرجّع مرجع الأمر: {existing} أو {fresh} أو null (مع تسجيل الخطأ)
+  const resolvePo = (sheet, r, required) => {
+    const poNum = impText(r.po_number);
+    if (!poNum) { if (required) E(sheet, r._row, 'رقم أمر الشراء مطلوب'); return null; }
+    const k = key(poNum);
+    if (poByKey.has(k)) return { existing: poByKey.get(k), k };
+    if (newPoByKey.has(k)) return { fresh: newPoByKey.get(k), k };
+    if (badPoKeys.has(k)) E(sheet, r._row, `أمر الشراء "${poNum}" به أخطاء في شيت "أوامر الشراء" — صحّحه أولاً`);
+    else E(sheet, r._row, `أمر الشراء "${poNum}" غير موجود في النظام ولا في شيت "أوامر الشراء"`);
+    return null;
+  };
+
+  // ---- بنود الأمر ----
+  for (const r of rows.lines) {
+    if (isExample(r, [['item_name','عبوة زجاج 50مل']])) { plan.skippedExamples++; W('lines', r._row, 'صف المثال التوضيحي — تم تجاهله'); continue; }
+    const before = errors.length;
+    const ref = resolvePo('lines', r, true);
+    const name = impText(r.item_name); if (!name) E('lines', r._row, 'اسم الصنف مطلوب');
+    const q = impNum(r.quantity); if (q.err || (q.v !== null && q.v < 0)) E('lines', r._row, `الكمية "${r.quantity}" غير صحيحة`);
+    const p = impNum(r.unit_price); if (p.err || (p.v !== null && p.v < 0)) E('lines', r._row, `سعر الوحدة "${r.unit_price}" غير صحيح`);
+    if (errors.length > before || !ref) continue;
+    const qty = q.v ?? 0, price = p.v ?? 0;
+    if (q.v === null || p.v === null) W('lines', r._row, `الكمية أو السعر فارغ للصنف "${name}" — سيُحفظ بصفر`);
+    if (ref.existing) {
+      const dup = db.lines.some(l => l.po_id === ref.existing.id && key(l.item_name) === key(name) && Number(l.quantity||0) === qty && Number(l.unit_price||0) === price);
+      if (dup) { plan.skippedDuplicates++; W('lines', r._row, `البند "${name}" موجود مسبقًا بنفس الكمية والسعر في الأمر ${ref.existing.po_number} — تم تجاهله`); continue; }
+      plan.existingPoLinked.add(ref.k);
+      if (ref.existing.total_sar && !warnedTotals.has(ref.k)) { warnedTotals.add(ref.k); warnings.push(`الأمر ${ref.existing.po_number} موجود مسبقًا وله إجمالي بالريال محفوظ — إضافة بنود جديدة لن تحدّث الإجمالي تلقائيًا (يحتاج فتح الأمر وحفظه من حساب المدير)`); }
+    } else ref.fresh._lineTotal += qty * price;
+    plan.lines.push({ _poKey:ref.k, item_name:name, category:impText(r.category), quantity:qty, unit_price:price, notes:impText(r.notes),
+                      currency: ref.existing ? ref.existing.currency : ref.fresh.currency });
+  }
+
+  // ---- الشحنات ----
+  for (const r of rows.shipments) {
+    if (isExample(r, [['container_number','MSCU1234567']])) { plan.skippedExamples++; W('shipments', r._row, 'صف المثال التوضيحي — تم تجاهله'); continue; }
+    const before = errors.length;
+    const ref = resolvePo('shipments', r, true);
+    const rec = { container_number:impText(r.container_number), shipping_line:impText(r.shipping_line), container_contents:impText(r.container_contents),
+                  tracking_url:impText(r.tracking_url), status:impText(r.status), notes:impText(r.notes) };
+    const tq = impNum(r.total_quantity); if (tq.err) E('shipments', r._row, `الكمية الإجمالية "${r.total_quantity}" غير صحيحة`); rec.total_quantity = tq.v;
+    for (const f of IMP_SHIP_DATES) { const d = impDate(r[f]); if (d.err) E('shipments', r._row, `تاريخ "${r[f]}" غير صحيح (YYYY-MM-DD)`); rec[f] = d.v; }
+    if (rec.tracking_url && !/^https?:\/\//i.test(rec.tracking_url)) E('shipments', r._row, 'رابط التتبع يجب أن يبدأ بـ http:// أو https://');
+    if (errors.length > before || !ref) continue;
+    if (ref.existing) {
+      if (rec.container_number && db.shipments.some(s => s.po_id === ref.existing.id && key(s.container_number) === key(rec.container_number))) {
+        plan.skippedDuplicates++; W('shipments', r._row, `الحاوية ${rec.container_number} مسجلة مسبقًا على الأمر ${ref.existing.po_number} — تم تجاهلها`); continue;
+      }
+      plan.existingPoLinked.add(ref.k);
+    }
+    plan.shipments.push({ _poKey:ref.k, ...rec });
+  }
+
+  // ---- الدفعات ----
+  for (const r of rows.payments) {
+    if (isExample(r, [['reference','TT-2026-114']])) { plan.skippedExamples++; W('payments', r._row, 'صف المثال التوضيحي — تم تجاهله'); continue; }
+    const before = errors.length;
+    const ref = resolvePo('payments', r, false);
+    const supName = impText(r.supplier);
+    if (!impText(r.po_number) && !supName) E('payments', r._row, 'يجب تحديد رقم أمر الشراء أو اسم المورد على الأقل');
+    const amt = impNum(r.amount); if (amt.err || amt.v === null || amt.v <= 0) E('payments', r._row, `المبلغ "${r.amount ?? ''}" مطلوب ويجب أن يكون رقمًا أكبر من صفر`);
+    const seq = impNum(r.payment_seq); if (seq.err || (seq.v !== null && (!Number.isInteger(seq.v) || seq.v < 1))) E('payments', r._row, `رقم الدفعة "${r.payment_seq}" غير صحيح`);
+    const st = impEnum(r.status, IMP_PAY_STATUS); if (st.err) E('payments', r._row, `الحالة "${r.status}" غير صحيحة`);
+    const dd = impDate(r.due_date); if (dd.err) E('payments', r._row, `تاريخ الاستحقاق "${r.due_date}" غير صحيح (YYYY-MM-DD)`);
+    const td = impDate(r.transferred_date); if (td.err) E('payments', r._row, `تاريخ التحويل "${r.transferred_date}" غير صحيح (YYYY-MM-DD)`);
+    const q = impNum(r.quantity); if (q.err) E('payments', r._row, `الكمية "${r.quantity}" غير صحيحة`);
+    let cur = impEnum(r.currency, IMP_PAY_CURRENCY);
+    if (cur.err) E('payments', r._row, `العملة "${r.currency}" غير صحيحة (${IMP_PAY_CURRENCY.join('/')})`);
+    else if (!cur.v) {
+      const poCur = ref ? (ref.existing ? ref.existing.currency : ref.fresh.currency) : null;
+      if (IMP_PAY_CURRENCY.includes(poCur)) cur = { v: poCur };
+      else E('payments', r._row, 'العملة مطلوبة');
+    }
+    if (errors.length > before || (impText(r.po_number) && !ref)) continue;
+    const seqV = seq.v ?? 1;
+    if (ref && ref.existing && db.payments.some(p => p.po_id === ref.existing.id && Number(p.payment_seq) === seqV && Number(p.amount) === amt.v)) {
+      plan.skippedDuplicates++; W('payments', r._row, `الدفعة رقم ${seqV} بمبلغ ${amt.v} مسجلة مسبقًا على الأمر ${ref.existing.po_number} — تم تجاهلها`); continue;
+    }
+    if (!ref && supName && supByKey.has(key(supName)) && db.payments.some(p => !p.po_id && p.supplier_id === supByKey.get(key(supName)).id && Number(p.payment_seq) === seqV && Number(p.amount) === amt.v)) {
+      plan.skippedDuplicates++; W('payments', r._row, `الدفعة رقم ${seqV} بمبلغ ${amt.v} مسجلة مسبقًا للمورد ${supName} — تم تجاهلها`); continue;
+    }
+    if (ref && ref.existing) plan.existingPoLinked.add(ref.k);
+    if (st.v === 'مُحوَّلة' && !td.v) W('payments', r._row, 'الحالة "مُحوَّلة" بدون تاريخ تحويل');
+    plan.payments.push({ _poKey: ref ? ref.k : null, _supKey: supName ? needSupplier(supName) : null,
+      payment_seq:seqV, amount:amt.v, currency:cur.v, due_date:dd.v, status:st.v || 'مستحقة', transferred_date:td.v,
+      reference:impText(r.reference), item_name:impText(r.item_name), category:impText(r.category), quantity:q.v, notes:impText(r.notes) });
+  }
+
+  plan.orders.forEach(o => { if (!plan.lines.some(l => l._poKey === o._key)) warnings.push(`الأمر الجديد ${o.po_number} بدون أي بنود في شيت "بنود الأمر"`); });
+  plan.total = plan.orders.length + plan.lines.length + plan.shipments.length + plan.payments.length;
+  return plan;
+}
+
+// ينفّذ الخطة على قاعدة البيانات بالترتيب: موردون ← أوامر ← بنود ← شحنات ← دفعات
+async function impExecute(plan, client, userId, db){
+  const done = { suppliers:0, orders:0, lines:0, shipments:0, payments:0 };
+  const fail = (step, error) => { const e = new Error(`${step}: ${error.message}`); e.done = done; return e; };
+  const supId = new Map(); db.suppliers.forEach(s => { const k = impNorm(s.name); if (!supId.has(k)) supId.set(k, s.id); });
+  const poId = new Map(); db.orders.forEach(o => { if (o.po_number) { const k = impNorm(o.po_number); if (!poId.has(k)) poId.set(k, { id:o.id, supplier_id:o.supplier_id }); } });
+
+  if (plan.newSuppliers.size) {
+    const { data, error } = await client.from('erp_suppliers').insert([...plan.newSuppliers.values()].map(name => ({ name, created_by:userId }))).select();
+    if (error) throw fail('إنشاء الموردين', error);
+    data.forEach(s => supId.set(impNorm(s.name), s.id)); done.suppliers = data.length;
+  }
+  if (plan.orders.length) {
+    const now = new Date().toISOString();
+    const { data, error } = await client.from('erp_purchase_orders').insert(plan.orders.map(o => ({
+      po_number:o.po_number, supplier_id:supId.get(o._supKey), order_type:o.order_type, currency:o.currency, status:o.status,
+      order_date:o.order_date, need_by_date:o.need_by_date, notes:o.notes, exchange_rate_to_sar:o.exchange_rate_to_sar,
+      total_sar: o.exchange_rate_to_sar && o._lineTotal ? Math.round(o._lineTotal * o.exchange_rate_to_sar * 100) / 100 : null,
+      nama_uploaded:o.nama_uploaded, nama_uploaded_at:o.nama_uploaded ? now : null, created_by:userId,
+    }))).select();
+    if (error) throw fail('إنشاء أوامر الشراء', error);
+    data.forEach(o => poId.set(impNorm(o.po_number), { id:o.id, supplier_id:o.supplier_id })); done.orders = data.length;
+  }
+  if (plan.lines.length) {
+    const { error } = await client.from('erp_po_line_items').insert(plan.lines.map(l => ({
+      po_id:poId.get(l._poKey).id, item_name:l.item_name, category:l.category, unit_price:l.unit_price, quantity:l.quantity,
+      currency:l.currency, notes:l.notes, created_by:userId })));
+    if (error) throw fail('إضافة البنود', error);
+    done.lines = plan.lines.length;
+  }
+  if (plan.shipments.length) {
+    const { error } = await client.from('erp_shipments').insert(plan.shipments.map(({ _poKey, ...s }) => ({ ...s, po_id:poId.get(_poKey).id, created_by:userId, updated_by:userId })));
+    if (error) throw fail('إضافة الشحنات', error);
+    done.shipments = plan.shipments.length;
+  }
+  if (plan.payments.length) {
+    const { error } = await client.from('erp_payments').insert(plan.payments.map(({ _poKey, _supKey, ...p }) => {
+      const po = _poKey ? poId.get(_poKey) : null;
+      return { ...p, po_id: po ? po.id : null, supplier_id: _supKey ? supId.get(_supKey) : (po ? po.supplier_id : null), created_by:userId };
+    }));
+    if (error) throw fail('إضافة الدفعات', error);
+    done.payments = plan.payments.length;
+  }
+  return done;
+}
+// IMPORT-BLOCK-END
+
+function impEsc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function openImportModal(){
+  if (!canWrite()) return;
+  let plan = null;
+  openModal(`
+    <h3>استيراد من إكسل (أوامر + بنود + شحنات + دفعات)</h3>
+    <p class="muted">املأ القالب المعتمد ثم ارفعه هنا. لن يُحفظ أي شيء قبل مراجعة الملخص والضغط على "تأكيد الاستيراد".
+      <a href="import-template.xlsx" download>⬇️ تحميل القالب</a></p>
+    <div class="field"><label>ملف الإكسل (.xlsx)</label><input type="file" id="imp-file" accept=".xlsx,.xls"></div>
+    <div id="imp-preview"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="imp-run" disabled>تأكيد الاستيراد</button>
+      <button class="btn" id="imp-cancel">إغلاق</button>
+    </div>
+  `, (root)=>{
+    const preview = root.querySelector('#imp-preview');
+    const runBtn = root.querySelector('#imp-run');
+    const list = (items, color) => `<ul style="margin:6px 0;padding-inline-start:20px;max-height:180px;overflow:auto;font-size:13px;color:${color}">${items.map(i=>`<li>${impEsc(i)}</li>`).join('')}</ul>`;
+    root.querySelector('#imp-cancel').onclick = closeModal;
+    root.querySelector('#imp-file').onchange = async (e) => {
+      plan = null; runBtn.disabled = true; preview.innerHTML = '';
+      const file = e.target.files[0]; if (!file) return;
+      try {
+        await refreshAll(); // أحدث بيانات قبل المطابقة
+        const wb = XLSX.read(await file.arrayBuffer(), { type:'array' });
+        const { rows, problems } = impReadWorkbook(wb);
+        if (problems.length) { preview.innerHTML = `<div class="card" style="border-color:var(--danger)"><strong>الملف لا يطابق القالب:</strong>${list(problems,'var(--danger)')}</div>`; return; }
+        const p = impBuildPlan(rows, cache);
+        const newPoCount = p.orders.length;
+        preview.innerHTML = `
+          <div class="card" style="margin-top:10px">
+            <strong>ملخص ما سيتم إضافته</strong>
+            <table style="margin-top:6px"><tbody>
+              <tr><td>موردون جدد</td><td><strong>${p.newSuppliers.size}</strong> ${p.newSuppliers.size ? '— ' + impEsc([...p.newSuppliers.values()].join('، ')) : ''}</td></tr>
+              <tr><td>أوامر شراء جديدة</td><td><strong>${newPoCount}</strong></td></tr>
+              <tr><td>أوامر موجودة مسبقًا (ربط فقط، بدون تعديل)</td><td><strong>${p.skippedExisting}</strong></td></tr>
+              <tr><td>بنود</td><td><strong>${p.lines.length}</strong></td></tr>
+              <tr><td>شحنات</td><td><strong>${p.shipments.length}</strong></td></tr>
+              <tr><td>دفعات</td><td><strong>${p.payments.length}</strong></td></tr>
+              <tr><td>صفوف مكررة تم تجاهلها</td><td><strong>${p.skippedDuplicates}</strong></td></tr>
+            </tbody></table>
+            ${p.newSuppliers.size ? '<p class="muted" style="margin-top:6px">⚠️ راجع أسماء الموردين الجدد: لو أحدهم موجود في النظام باسم مختلف قليلاً، صحّح الاسم في الملف لتفادي التكرار.</p>' : ''}
+          </div>
+          ${p.errors.length ? `<div class="card" style="margin-top:10px;border-color:var(--danger)"><strong style="color:var(--danger)">أخطاء (${p.errors.length}) — لن يتم الاستيراد قبل تصحيحها وإعادة رفع الملف</strong>${list(p.errors,'var(--danger)')}</div>` : ''}
+          ${p.warnings.length ? `<div class="card" style="margin-top:10px;border-color:var(--warn)"><strong>تنبيهات (${p.warnings.length})</strong>${list(p.warnings,'inherit')}</div>` : ''}
+          ${!p.errors.length && !p.total ? '<p class="muted">لا توجد صفوف جديدة للاستيراد.</p>' : ''}`;
+        if (!p.errors.length && p.total) { plan = p; runBtn.disabled = false; }
+      } catch(err) { preview.innerHTML = `<p style="color:var(--danger)">تعذّرت قراءة الملف: ${impEsc(err.message)}</p>`; }
+    };
+    runBtn.onclick = async () => {
+      if (!plan) return;
+      if (!confirm(`سيتم إضافة ${plan.orders.length} أمر، ${plan.lines.length} بند، ${plan.shipments.length} شحنة، ${plan.payments.length} دفعة. متابعة؟`)) return;
+      runBtn.disabled = true; runBtn.textContent = 'جارٍ الاستيراد...';
+      const p = plan; plan = null;
+      try {
+        const d = await impExecute(p, sb, currentUser.id, cache);
+        await refreshAll(); renderActiveTab(); closeModal();
+        toast(`تم الاستيراد: ${d.orders} أمر، ${d.lines} بند، ${d.shipments} شحنة، ${d.payments} دفعة`);
+      } catch(err) {
+        const d = err.done || {};
+        await refreshAll(); renderActiveTab();
+        preview.innerHTML = `<div class="card" style="border-color:var(--danger)"><strong style="color:var(--danger)">توقف الاستيراد — ${impEsc(err.message)}</strong>
+          <p style="font-size:13px">ما تم حفظه قبل التوقف: ${d.suppliers||0} مورد، ${d.orders||0} أمر، ${d.lines||0} بند، ${d.shipments||0} شحنة، ${d.payments||0} دفعة.
+          بعد معالجة السبب أعد رفع نفس الملف: الأوامر والصفوف المحفوظة سيتم تجاهلها تلقائيًا ولن تتكرر.</p></div>`;
+        runBtn.textContent = 'تأكيد الاستيراد';
+      }
+    };
+  });
+}
+
+// ============================================================
 // ORDERS — Enhanced with FX, Nama Soft, Attachments
 // ============================================================
 function renderOrders(root){
@@ -782,6 +1141,7 @@ function renderOrders(root){
         <strong>أوامر الشراء (${cache.orders.length})</strong>
         <div class="row" style="flex:0;gap:8px">
           <button class="btn small" id="exp-orders">تصدير إكسل</button>
+          ${canAdd ? '<button class="btn small" id="imp-orders">⬆️ استيراد إكسل</button>' : ''}
           ${canAdd ? '<button class="btn primary small" id="add-order">+ أمر جديد</button>' : ''}
         </div>
       </div>
@@ -825,6 +1185,7 @@ function renderOrders(root){
       </div>
     </div>
   `;
+  if (canAdd) root.querySelector('#imp-orders').onclick = openImportModal;
   root.querySelector('#exp-orders').onclick = () => exportToExcel(cache.orders.map(o=>{
     const lines = linesFor(o.id);
     const lineTotal = lines.reduce((s,l)=>s+(l.line_total||l.unit_price*l.quantity||0),0);
